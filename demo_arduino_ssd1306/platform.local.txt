@@ -1,0 +1,1 @@
+compiler.c.elf.extra_flags=C:\Users\andy\gui\demo_arduino_ssd1306\build\ogui_ui.o

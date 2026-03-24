@@ -4,6 +4,8 @@ import "core:fmt"
 import ogui "../ogui"
 import backend "../backend_sdl"
 
+scroll_id : ^ogui.Scroll_State
+
 main :: proc() {
 	sdl := backend.create(900, 800, "OGUI Demo")
 	if !sdl.init(&sdl, sdl.width, sdl.height) {
@@ -55,7 +57,7 @@ main :: proc() {
 	for !ogui.should_quit(&mgr) {
 		ogui.frame_begin(&mgr)
 
-		ogui.scroll_begin(&mgr, gap = 14, size = {ogui.SIZE_GROW, ogui.SIZE_GROW}, padding = {20, 24, 20, 24})
+		scroll_id = ogui.scroll_begin(&mgr, gap = 14, size = {ogui.SIZE_GROW, ogui.SIZE_GROW}, padding = {20, 24, 20, 24})
 
 		ogui.heading(&mgr, "OGUI Demo")
 		ogui.label(&mgr, "A cross-platform UI framework in Odin", color = ogui.THEME_TEXT_DIM)
@@ -67,6 +69,7 @@ main :: proc() {
 		if .Clicked in ogui.button(&mgr, "Reset") { click_count = 0 }
 		ogui.label(&mgr, fmt.tprintf("Clicks: %d", click_count), padding = {6, 12, 6, 12})
 		ogui.flex_end(&mgr)
+		
 
 		// --- Sliders ---
 		ogui.label(&mgr, "Sliders", scale = 2.5, color = ogui.COLOR_WHITE)
@@ -119,6 +122,7 @@ main :: proc() {
 		if .Clicked in ogui.button(&mgr, "Elastic") {
 			ogui.animate_f32(&mgr, &anim_val, 1 if anim_val < 0.5 else 0, duration = 0.7, easing = .Ease_Out_Elastic)
 		}
+
 		ogui.flex_end(&mgr)
 
 		ogui.flex_begin(&mgr, axis = .Horizontal, size = {ogui.SIZE_GROW, ogui.size_fixed(16)}, bg_color = ogui.Color{40, 43, 50, 255})
@@ -137,14 +141,28 @@ main :: proc() {
 
 		// --- Scrollbox ---
 		ogui.label(&mgr, "Scrollbox", scale = 2.5, color = ogui.COLOR_WHITE)
-		ogui.scroll_begin(&mgr, gap = 4, size = {ogui.SIZE_GROW, ogui.size_fixed(150)},
+		ogui.label(&mgr, "Independent scroll containers inside a horizontal flex:", color = ogui.THEME_TEXT_DIM)
+		ogui.flex_begin(&mgr, axis = .Horizontal, gap = 12, size = {ogui.SIZE_GROW, ogui.size_fixed(180)})
+
+		ogui.scroll_begin(&mgr, gap = 4, size = {ogui.SIZE_GROW, ogui.SIZE_GROW},
 			padding = {8, 8, 8, 8}, bg_color = ogui.Color{40, 43, 50, 255})
 		for i in 0..<20 {
 			ogui.push_id(&mgr, i)
-			ogui.label(&mgr, fmt.tprintf("Scrollable item %d", i + 1), padding = {4, 8, 4, 8})
+			ogui.label(&mgr, fmt.tprintf("Left panel item %d", i + 1), padding = {4, 8, 4, 8})
 			ogui.pop_id(&mgr)
 		}
 		ogui.scroll_end(&mgr)
+
+		ogui.scroll_begin(&mgr, gap = 4, size = {ogui.SIZE_GROW, ogui.SIZE_GROW},
+			padding = {8, 8, 8, 8}, bg_color = ogui.Color{50, 43, 40, 255})
+		for i in 0..<15 {
+			ogui.push_id(&mgr, i)
+			ogui.label(&mgr, fmt.tprintf("Right panel item %d", i + 1), padding = {4, 8, 4, 8})
+			ogui.pop_id(&mgr)
+		}
+		ogui.scroll_end(&mgr)
+
+		ogui.flex_end(&mgr)
 
 		ogui.scroll_end(&mgr) // end outer scroll
 

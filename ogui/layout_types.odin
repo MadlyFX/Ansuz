@@ -101,6 +101,12 @@ Box :: struct {
 	// Scroll offset applied to children after layout (set by scroll_begin)
 	scroll_offset:  Vec2,
 
+	// Effective clip region from ancestor chain (set during draw emission).
+	// is_clipped is true only when an ancestor has Clip_Children, to avoid
+	// unnecessary clip state changes for unclipped boxes.
+	effective_clip: Rect,
+	is_clipped:     bool,
+
 	flags:          Box_Flags,
 }
 

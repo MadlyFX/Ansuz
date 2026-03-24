@@ -32,7 +32,7 @@ scroll_begin :: proc(
 	padding:  [4]f32     = {},
 	bg_color: Color      = COLOR_TRANSPARENT,
 	loc       := #caller_location,
-) {
+) -> ^Scroll_State {
 	id := id_from_loc(&mgr.id_stack, loc)
 
 	// Look up previous frame's rect for mouse wheel hit test
@@ -47,11 +47,10 @@ scroll_begin :: proc(
 	}
 	ss := &mgr.scroll_states[id]
 
-	// Handle mouse wheel when hovering
-	if mgr.input.mouse_scroll_y != 0 && rect_contains(prev_rect, mgr.input.mouse_x, mgr.input.mouse_y) {
-		ss.offset_y -= mgr.input.mouse_scroll_y * SCROLL_SPEED
-		max_scroll := max(0, ss.content_h - ss.viewport_h)
-		ss.offset_y = clamp(ss.offset_y, 0, max_scroll)
+	// Track deepest scroll container under mouse for wheel routing.
+	// Since children are visited after parents, the last writer is the deepest.
+	if rect_contains(prev_rect, mgr.input.mouse_x, mgr.input.mouse_y) {
+		mgr.scroll_wheel_candidate = id
 	}
 
 	// Create the scrollbox container
@@ -82,6 +81,7 @@ scroll_begin :: proc(
 			},
 		})
 	}
+	return ss
 }
 
 scroll_end :: proc(mgr: ^Manager) {

@@ -91,6 +91,9 @@ Manager :: struct {
 	// Per-widget scroll state (scroll position, content/viewport sizes)
 	scroll_states:    map[Widget_ID]Scroll_State,
 
+	// Tracks deepest scroll container under mouse cursor for wheel routing
+	scroll_wheel_candidate: Widget_ID,
+
 	// Sequence counter for generating unique IDs within a single call site (loops)
 	seq_counter:      int,
 }
@@ -159,6 +162,7 @@ frame_begin :: proc(mgr: ^Manager) {
 	clear(&mgr.popup_draws)
 	mgr.seq_counter = 0
 	mgr.hot_id = ID_NONE
+	mgr.scroll_wheel_candidate = ID_NONE
 
 	mgr.frame_id += 1
 
@@ -210,17 +214,29 @@ frame_end :: proc(mgr: ^Manager) {
 
 	// Emit draw commands via tree walk (enables proper clip nesting for scrollboxes)
 	if len(mgr.boxes) > 0 {
-		emit_box_tree(mgr, 0)
+		full_screen := Rect{0, 0, f32(mgr.backend.width), f32(mgr.backend.height)}
+		emit_box_tree(mgr, 0, full_screen, false)
 	}
 
 	// Emit deferred text draw commands (now that layout rects are resolved)
+	full_screen := Rect{0, 0, f32(mgr.backend.width), f32(mgr.backend.height)}
+	needs_clip_reset := false
 	for &dt in mgr.deferred_texts {
 		b := &mgr.boxes[dt.box_index]
 		text_size := measure_text_builtin(dt.text, dt.scale)
 		cr := b.content_rect
 
-		if dt.clip {
-			push_clip(&mgr.draw_list, cr)
+		// Only push clip when the box is inside a clipping ancestor or needs its own clip
+		if b.is_clipped || dt.clip {
+			clip := b.effective_clip
+			if dt.clip {
+				clip = rect_intersect(clip, cr)
+			}
+			push_clip(&mgr.draw_list, clip)
+			needs_clip_reset = true
+		} else if needs_clip_reset {
+			push_clip(&mgr.draw_list, full_screen)
+			needs_clip_reset = false
 		}
 
 		tx := cr.x
@@ -233,10 +249,9 @@ frame_end :: proc(mgr: ^Manager) {
 		}
 
 		push_text(&mgr.draw_list, {tx, ty}, dt.text, dt.color, 0, dt.scale)
-
-		if dt.clip {
-			push_clip(&mgr.draw_list, Rect{0, 0, f32(mgr.backend.width), f32(mgr.backend.height)})
-		}
+	}
+	if needs_clip_reset {
+		push_clip(&mgr.draw_list, full_screen)
 	}
 
 	// Emit deferred custom draws (sliders, checkmarks, arrows, etc.)
@@ -323,8 +338,14 @@ pop_id :: proc(mgr: ^Manager) {
 // --- Internal ---
 
 // Recursive tree walk for draw emission. Handles clip push/pop for scroll containers.
-emit_box_tree :: proc(mgr: ^Manager, idx: int) {
+// parent_clip is the active clip region inherited from the ancestor chain.
+// parent_is_clipped is true when any ancestor has Clip_Children set.
+emit_box_tree :: proc(mgr: ^Manager, idx: int, parent_clip: Rect, parent_is_clipped: bool) {
 	b := &mgr.boxes[idx]
+
+	// Store effective clip so deferred draws (text, sliders, etc.) can use it
+	b.effective_clip = parent_clip
+	b.is_clipped = parent_is_clipped
 
 	// Draw background
 	if b.bg_color.a > 0 {
@@ -335,22 +356,27 @@ emit_box_tree :: proc(mgr: ^Manager, idx: int) {
 		push_rect_outline(&mgr.draw_list, b.computed_rect, b.border_color, b.border_width, b.corner_radius)
 	}
 
-	// Push clip for containers that clip children (scrollboxes)
+	// Push clip for containers that clip children (scrollboxes).
+	// Intersect with parent clip so nested clips are properly contained.
 	clipping := .Clip_Children in b.flags
+	current_clip := parent_clip
+	child_is_clipped := parent_is_clipped
 	if clipping {
-		push_clip(&mgr.draw_list, b.content_rect)
+		current_clip = rect_intersect(parent_clip, b.content_rect)
+		child_is_clipped = true
+		push_clip(&mgr.draw_list, current_clip)
 	}
 
 	// Recurse into children
 	child := b.first_child
 	for child != -1 {
-		emit_box_tree(mgr, child)
+		emit_box_tree(mgr, child, current_clip, child_is_clipped)
 		child = mgr.boxes[child].next_sibling
 	}
 
-	// Pop clip (restore to full screen)
+	// Restore parent's clip region
 	if clipping {
-		push_clip(&mgr.draw_list, Rect{0, 0, f32(mgr.backend.width), f32(mgr.backend.height)})
+		push_clip(&mgr.draw_list, parent_clip)
 	}
 }
 

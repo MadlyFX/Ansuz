@@ -71,9 +71,20 @@ Popup_Draw :: struct {
 
 // Emit deferred draw commands. Called from frame_end after layout.
 emit_deferred_draws :: proc(mgr: ^Manager) {
+	full_screen := Rect{0, 0, f32(mgr.backend.width), f32(mgr.backend.height)}
+	needs_clip_reset := false
 	for &dd in mgr.deferred_draws {
 		b := &mgr.boxes[dd.box_index]
 		r := b.computed_rect
+
+		// Only push clip when the box is inside a clipping ancestor
+		if b.is_clipped {
+			push_clip(&mgr.draw_list, b.effective_clip)
+			needs_clip_reset = true
+		} else if needs_clip_reset {
+			push_clip(&mgr.draw_list, full_screen)
+			needs_clip_reset = false
+		}
 
 		s := dd.scale if dd.scale > 0 else 1.0
 
@@ -97,6 +108,9 @@ emit_deferred_draws :: proc(mgr: ^Manager) {
 		case .Scrollbar:
 			emit_scrollbar_draw(mgr, r, dd.scrollbar)
 		}
+	}
+	if needs_clip_reset {
+		push_clip(&mgr.draw_list, full_screen)
 	}
 }
 

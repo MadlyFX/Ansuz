@@ -1,0 +1,1 @@
+compiler.libraries.ldflags=C:\Users\andy\gui\demo_arduino_oled\build\ansuz_ui.o

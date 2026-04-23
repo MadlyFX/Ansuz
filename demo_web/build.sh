@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# Build OGUI Web Demo to WASM
+# Build ansuz Web Demo to WASM
 # Requires Odin compiler with js_wasm32 target support
 
 ODIN=odin
@@ -12,8 +12,8 @@ MAX_PAGES=65536
 INITIAL_BYTES=$((INITIAL_PAGES * 65536))
 MAX_BYTES=$((MAX_PAGES * 65536))
 
-echo "Building OGUI Web Demo..."
-$ODIN build . -target:js_wasm32 -out:web/ogui_demo.wasm -o:size \
+echo "Building ansuz Web Demo..."
+$ODIN build . -target:js_wasm32 -out:web/ansuz_demo.wasm -o:size \
     -extra-linker-flags:"--export-table --import-memory --initial-memory=$INITIAL_BYTES --max-memory=$MAX_BYTES"
 
 # Copy Odin JS runtime

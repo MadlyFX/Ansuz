@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>OGUI Web Demo</title>
+    <title>ansuz Web Demo</title>
     <style>
         * { margin: 0; padding: 0; }
         body {
@@ -21,7 +21,7 @@
     </style>
 </head>
 <body>
-    <canvas id="ogui-canvas" width="800" height="600" tabindex="0"></canvas>
+    <canvas id="ansuz-canvas" width="800" height="600" tabindex="0"></canvas>
 
     <script src="odin.js"></script>
     <script>
@@ -35,7 +35,7 @@
         const memInterface = new odin.WasmMemoryInterface();
         memInterface.setMemory(mem);
 
-        const canvas = document.getElementById("ogui-canvas");
+        const canvas = document.getElementById("ansuz-canvas");
         canvas.focus();
 
         // Forward mouse events to WASM
@@ -43,8 +43,8 @@
             const rect = canvas.getBoundingClientRect();
             const scaleX = canvas.width / rect.width;
             const scaleY = canvas.height / rect.height;
-            if (memInterface.exports && memInterface.exports._ogui_set_mouse) {
-                memInterface.exports._ogui_set_mouse(
+            if (memInterface.exports && memInterface.exports._ansuz_set_mouse) {
+                memInterface.exports._ansuz_set_mouse(
                     (e.clientX - rect.left) * scaleX,
                     (e.clientY - rect.top) * scaleY
                 );
@@ -53,22 +53,22 @@
 
         canvas.addEventListener("mousedown", (e) => {
             canvas.focus();
-            if (memInterface.exports && memInterface.exports._ogui_set_mouse_button) {
-                memInterface.exports._ogui_set_mouse_button(1);
+            if (memInterface.exports && memInterface.exports._ansuz_set_mouse_button) {
+                memInterface.exports._ansuz_set_mouse_button(1);
             }
         });
 
         canvas.addEventListener("mouseup", (e) => {
-            if (memInterface.exports && memInterface.exports._ogui_set_mouse_button) {
-                memInterface.exports._ogui_set_mouse_button(0);
+            if (memInterface.exports && memInterface.exports._ansuz_set_mouse_button) {
+                memInterface.exports._ansuz_set_mouse_button(0);
             }
         });
 
         canvas.addEventListener("wheel", (e) => {
-            if (memInterface.exports && memInterface.exports._ogui_mouse_wheel) {
+            if (memInterface.exports && memInterface.exports._ansuz_mouse_wheel) {
                 // Normalize: deltaY > 0 means scroll down, we negate to match SDL convention
                 const delta = -Math.sign(e.deltaY);
-                memInterface.exports._ogui_mouse_wheel(delta);
+                memInterface.exports._ansuz_mouse_wheel(delta);
             }
             e.preventDefault();
         }, { passive: false });
@@ -94,12 +94,12 @@
             // Send special key events
             const code = KEY_MAP[e.key];
             if (code !== undefined) {
-                memInterface.exports._ogui_key_down(code);
+                memInterface.exports._ansuz_key_down(code);
             }
 
             // Send printable characters as text input
             if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
-                memInterface.exports._ogui_text_input(e.key.charCodeAt(0));
+                memInterface.exports._ansuz_text_input(e.key.charCodeAt(0));
             }
 
             if (PREVENT_DEFAULT.has(e.key)) {
@@ -112,12 +112,12 @@
 
             const code = KEY_MAP[e.key];
             if (code !== undefined) {
-                memInterface.exports._ogui_key_up(code);
+                memInterface.exports._ansuz_key_up(code);
             }
         });
 
         // Load and run the WASM module
-        odin.runWasm("ogui_demo.wasm", null, null, memInterface, 8);
+        odin.runWasm("ansuz_demo.wasm", null, null, memInterface, 8);
     </script>
 </body>
 </html>

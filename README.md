@@ -184,6 +184,4 @@ Core widget modules currently include:
 Additional supporting systems include animations/easing, transitions, interaction state, and reactive value plumbing.
 
 ## Notes
-
-- The project includes an `Odinlang examples/` folder with separate Odin learning/reference examples.
 - `SDL2.dll` may be present in the workspace, but the current desktop backend implementation imports SDL3 (`vendor:sdl3`).

@@ -114,7 +114,7 @@ odin run demo
 odin run demo_soft
 ```
 
-![Demo image](arduino.png)
+![Demo image](arduino2.png)
 
 ### 3. Web Demo (WASM + WebGL)
 

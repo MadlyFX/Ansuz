@@ -45,7 +45,6 @@ Ansuz is still in development, the syntax especially is still quite inconsistant
 - `demo/`: Desktop SDL demo
 - `demo_soft/`: Software renderer demo
 - `demo_web/`: WebAssembly/WebGL demo
-- `e2econfig/`, `e2econfig_web/`: End-to-end config UI examples
 
 ## Requirements
 

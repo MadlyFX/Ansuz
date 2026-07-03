@@ -7,7 +7,7 @@ It offers an immediate-mode authoring style with a retained internal state manag
 ![Demo image](demo.png)
 
 ## AI Disclosure
-While not vibe coded, the development of Ansuz did rely heavily on AI for it's development. That said, I did read all of the generated code as it was created and verified it to the best of my ability.
+AI was used to assist in development of Ansuz, mostly for refactoring/cleanup and some more esoteric system call stuff.
 
 ## Status
 Ansuz is still in development, the syntax especially is still quite inconsistant. PRs welcome.

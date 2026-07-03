@@ -7,7 +7,7 @@ It offers an immediate-mode authoring style with a retained internal state manag
 ![Demo image](demo.png)
 
 ## AI Disclosure
-While not vibe coded, the development of Ansuz did rely heavily on AI for it's development. That said, I did read all of the generated code as it was created and verified it to the best of my ability.
+AI was used to assist in development of Ansuz, mostly for refactoring/cleanup and some more esoteric system call stuff.
 
 ## Status
 Ansuz is still in development, the syntax especially is still quite inconsistant. PRs welcome.
@@ -19,22 +19,27 @@ Ansuz is still in development, the syntax especially is still quite inconsistant
   - Flex containers
   - Grid containers
   - Scroll containers
+  - Stack containers and floating overlay layers
 - Built-in widgets:
   - Label and heading
   - Button
+  - Menu button
   - Checkbox
   - Slider
   - Dropdown
   - Text input (single-line and multi-line)
   - Image widget
-- Animation support with easing functions
+- Popup rendering for dropdowns and menu lists
+- Animation support with easing functions and optional host-provided delta time
 - Font support:
   - Built-in bitmap font
+  - Manager default font plus per-widget overrides
   - TTF loading for higher-quality text
 - Multiple backends:
   - SDL3 renderer backend
   - Software renderer backend (embedded-style framebuffer path)
   - WebGL backend for `js_wasm32`
+- C ABI and Arduino static-library workflow for freestanding hosts
 
 ## Repository Layout
 
@@ -46,6 +51,7 @@ Ansuz is still in development, the syntax especially is still quite inconsistant
 - `demo/`: Desktop SDL demo
 - `demo_soft/`: Software renderer demo
 - `demo_web/`: WebAssembly/WebGL demo
+- `demo_arduino_oled/`: Arduino OLED demo and static-library build
 
 ## Requirements
 
@@ -162,6 +168,26 @@ Typical usage follows this order each frame:
 
 Internally, ansuz resolves layout, emits draw commands, handles deferred text/custom draws, executes backend rendering, and updates persistent widget state.
 
+`frame_begin` also accepts an optional `dt` value. Pass `frame_begin(&mgr, dt)`
+when the host application owns timing, or omit `dt` to use the default animation
+tick path.
+
+## Layout, Floating UI, and Popups
+
+Use `flex_begin`/`flex_end` for row or column layout, `grid_begin`/`grid_end`
+for explicit cells, `scroll_begin`/`scroll_end` for clipped scroll regions, and
+`stack_begin`/`stack_end` when children should share the same parent rectangle.
+
+Flex containers, stack containers, and leaf `box` calls accept `floating = true`.
+Floating boxes are emitted after the normal UI pass, which makes them suitable
+for modal backgrounds, dialogs, and other overlays. The manager's `modal_owner`
+field can be set while a modal is open so interaction outside the modal's ID
+stack is blocked.
+
+Dropdowns and `menu_button` use the popup overlay pass. Popup lists carry their
+own font, sizing, text, border, hover, and selected-state colors, and input is
+blocked behind an open or just-closed popup to avoid click-through.
+
 ## Backends
 
 ansuz is backend-agnostic through the `Backend` interface in `ansuz/backend.odin`.
@@ -174,6 +200,7 @@ A backend provides function pointers for:
 - Text measurement
 - Event polling
 - Font upload
+- Clipboard access for text input where supported
 
 This allows the same UI code to run on desktop, embedded-style software pipelines, and web targets with backend-specific rendering/event handling.
 
@@ -188,11 +215,19 @@ Text colors use a plain `Color` override, while interactive widgets accept a
 `Widget_Color` palette for their state colors. All color arguments have built-in
 defaults and can be omitted.
 
+## Animations
+
+Pointer-based helpers such as `animate_f32`, `animate_color`, and `spring_f32`
+are still available for ordinary widget state. ID-based variants such as
+`animate_f32_id`, `animate_color_id`, `spring_f32_id`, `cancel_animation_id`,
+and `is_animating_id` let callers drive animations from explicit widget IDs.
+
 ## Current Widget Set
 
 Core widget modules currently include:
 
 - `widgets.odin`
+- `menu.odin`
 - `checkbox.odin`
 - `slider.odin`
 - `dropdown.odin`

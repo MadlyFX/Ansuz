@@ -32,6 +32,12 @@ compute_interaction :: proc(mgr: ^Manager, id: Widget_ID, rect: Rect) -> Interac
 		return result
 	}
 
+	if state, ok := mgr.widget_states[id]; ok {
+		if state.has_prev_clip && !rect_contains(state.prev_clip, mgr.input.mouse_x, mgr.input.mouse_y) {
+			return result
+		}
+	}
+
 	mouse_over := rect_contains(rect, mgr.input.mouse_x, mgr.input.mouse_y)
 
 	// Update hot (hovered) state

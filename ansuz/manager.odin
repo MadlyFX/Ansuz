@@ -8,6 +8,8 @@ import "core:mem"
 Widget_State :: struct {
 	last_seen_frame: u64,
 	prev_rect:       Rect,       // Rect from last frame, used for hit testing
+	prev_clip:       Rect,       // Visible clip from last frame for clipped descendants
+	has_prev_clip:   bool,
 
 	// --- Value tracking ---
 	// The manager snapshots bound values each frame to detect changes.
@@ -255,7 +257,12 @@ frame_end :: proc(mgr: ^Manager) {
 	// Update widget prev_rects for next frame's hit testing
 	for entry in mgr.widget_box_map {
 		if ws, ok := &mgr.widget_states[entry.id]; ok {
-			ws.prev_rect = mgr.boxes[entry.box_index].computed_rect
+			box := &mgr.boxes[entry.box_index]
+			ws.prev_rect = box.computed_rect
+			ws.has_prev_clip = box.is_clipped
+			if box.is_clipped {
+				ws.prev_clip = box.effective_clip
+			}
 		}
 	}
 

@@ -9,6 +9,10 @@ void* __aeabi_read_tp(void) {
     return __tls_area;
 }
 
+#if defined(__GNUC__)
+__asm__(".section .note.GNU-stack,\"\",%progbits");
+#endif
+
 // Double to half-precision float conversion (IEEE 754 binary16).
 // Required by Odin's fmt/strconv when soft-float is enabled.
 uint16_t __aeabi_d2h(double d) {

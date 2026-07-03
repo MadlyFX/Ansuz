@@ -15,16 +15,19 @@ checkbox :: proc(
 	text: string,
 	value: ^bool,
 	scale: f32 = 1.0,
-	loc := #caller_location,
-	font: Font_Handle,
-	color := Widget_Color {
+	font: Font_Handle = FONT_DEFAULT,
+	color: Widget_Color = Widget_Color{
 		bg = COLOR_TRANSPARENT,
 		fg = THEME_CHECKBOX_BG,
 		hover = THEME_CHECKBOX_BG_HOVER,
 		focus = THEME_CHECKBOX_CHECKED,
 	},
-	label_color:= Label_Color{bg = COLOR_TRANSPARENT, label = THEME_TEXT},
+	text_color: Color = THEME_TEXT,
+	check_color: Color = THEME_CHECKBOX_CHECK_MARK,
+	border_color: Color = THEME_BORDER,
+	loc := #caller_location,
 ) -> Interaction {
+	effective_font := resolve_font(mgr, font)
 	id := id_from_ptr_loc(&mgr.id_stack, value, loc)
 
 	box_size := CHECKBOX_BOX_SIZE * scale
@@ -54,7 +57,7 @@ checkbox :: proc(
 	// Layout: horizontal flex with checkbox box + label
 	row_size := [2]Size_Spec{SIZE_FIT, size_fixed(box_size + pad_v * 2)}
 	if len(text) > 0 {
-		text_dims := measure_text(mgr, text, mgr.default_font, font_scale)
+		text_dims := measure_text(mgr, text, effective_font, font_scale)
 		row_size[0] = size_fixed(box_size + gap + text_dims.x + pad_h * 2)
 	} else {
 		row_size[0] = size_fixed(box_size + pad_h * 2)
@@ -69,24 +72,30 @@ checkbox :: proc(
 	outer.gap = gap
 	outer.size = row_size
 	outer.padding = {pad_v, pad_h, pad_v, pad_h}
+	outer.bg_color = color.bg
 
 	// The checkbox square
 	check_idx := box(mgr, size = {size_fixed(box_size), size_fixed(box_size)}, bg_color = box_bg)
 	mgr.boxes[check_idx].border_width = max(1, 1 * scale)
-	mgr.boxes[check_idx].border_color = THEME_BORDER
+	mgr.boxes[check_idx].border_color = border_color
 	mgr.boxes[check_idx].corner_radius = max(1, 3 * scale)
 
 	// Checkmark: deferred draw
 	if value^ {
 		append(
 			&mgr.deferred_draws,
-			Deferred_Draw{box_index = check_idx, kind = .Checkmark, scale = scale},
+			Deferred_Draw{
+				box_index = check_idx,
+				kind = .Checkmark,
+				scale = scale,
+				checkmark = Deferred_Checkmark_Data{color = check_color},
+			},
 		)
 	}
 
 	// Label text
 	if len(text) > 0 {
-		label(mgr, text, scale = font_scale, color = label_color, font = font)
+		label(mgr, text, scale = font_scale, color = text_color, font = effective_font)
 	}
 
 	pop_box(mgr) // end outer

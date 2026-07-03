@@ -13,25 +13,29 @@ Text_Input_State :: struct {
 
 THEME_TEXTINPUT_BG           :: Color{35, 38, 45, 255}
 THEME_TEXTINPUT_FOCUS_BORDER :: Color{80, 140, 220, 255}
+THEME_TEXTINPUT_CURSOR       :: Color{200, 210, 230, 255}
 
 text_input :: proc(
 	mgr:         ^Manager,
 	buf:         ^[dynamic]u8,
 	multiline:   bool         = false,
-	font:        Font_Handle,
+	font:        Font_Handle  = FONT_DEFAULT,
 	scale:       f32          = DEFAULT_FONT_SCALE,
 	size:        [2]Size_Spec = FIXED_200_FIT,
 	padding:     [4]f32       = {6, 8, 6, 8},
 	placeholder: string       = "",
-	loc          := #caller_location,
 	color: Widget_Color = Widget_Color{
 		bg    = THEME_TEXTINPUT_BG,
-		fg    = THEME_TEXT,
+		fg    = THEME_BORDER,
 		hover = THEME_TEXTINPUT_FOCUS_BORDER,
 		focus = THEME_TEXTINPUT_FOCUS_BORDER,
 	},
-	label_color: Label_Color = Label_Color{label = THEME_TEXT},
+	text_color: Color = THEME_TEXT,
+	placeholder_color: Color = THEME_TEXT_DIM,
+	cursor_color: Color = THEME_TEXTINPUT_CURSOR,
+	loc          := #caller_location,
 ) -> (Interaction, ^Text_Input_State) {
+	effective_font := resolve_font(mgr, font)
 	id := id_from_ptr_loc(&mgr.id_stack, buf, loc)
 
 	// Look up previous frame's rect for hit testing
@@ -62,11 +66,11 @@ text_input :: proc(
 	if mgr.input.mouse_left_pressed && is_focused && prev_rect.w > 0 {
 		cr_x := prev_rect.x + padding[3]
 		cr_y := prev_rect.y + padding[0]
-		line_h := get_line_height(mgr, font, scale)
+		line_h := get_line_height(mgr, effective_font, scale)
 
 		if !multiline {
 			rel_x := mgr.input.mouse_x - cr_x - ts.scroll_x
-			ts.cursor = hit_test_text(mgr, string(buf^[:]), rel_x, font, scale)
+			ts.cursor = hit_test_text(mgr, string(buf^[:]), rel_x, effective_font, scale)
 		} else {
 			rel_x := mgr.input.mouse_x - cr_x
 			rel_y := mgr.input.mouse_y - cr_y + ts.scroll_y
@@ -79,7 +83,7 @@ text_input :: proc(
 				if buf^[i] == '\n' {
 					if line == target_line {
 						line_text := string(buf^[line_start:i])
-						ts.cursor = line_start + hit_test_text(mgr, line_text, rel_x, font, scale)
+						ts.cursor = line_start + hit_test_text(mgr, line_text, rel_x, effective_font, scale)
 						found = true
 						break
 					}
@@ -90,7 +94,7 @@ text_input :: proc(
 			if !found {
 				line_text := string(buf^[line_start:])
 				if line == target_line {
-					ts.cursor = line_start + hit_test_text(mgr, line_text, rel_x, font, scale)
+					ts.cursor = line_start + hit_test_text(mgr, line_text, rel_x, effective_font, scale)
 				} else {
 					ts.cursor = len(buf^)
 				}
@@ -100,16 +104,33 @@ text_input :: proc(
 
 	// Handle keyboard input when focused
 	if is_focused {
+		if mgr.input.key_copy && mgr.backend.set_clipboard_text != nil {
+			_ = mgr.backend.set_clipboard_text(mgr.backend, string(buf^[:]))
+		}
+
+		if mgr.input.key_cut && mgr.backend.set_clipboard_text != nil {
+			_ = mgr.backend.set_clipboard_text(mgr.backend, string(buf^[:]))
+			clear(buf)
+			ts.cursor = 0
+		}
+
+		if mgr.input.key_paste && mgr.backend.get_clipboard_text != nil {
+			text := mgr.backend.get_clipboard_text(mgr.backend, context.temp_allocator)
+			insert_text_at_cursor(buf, &ts.cursor, text, multiline)
+		}
+
 		// Insert typed characters
-		for i in 0..<mgr.input.text_char_len {
-			ch := mgr.input.text_chars[i]
-			if ch >= 32 {
-				if ts.cursor >= len(buf^) {
-					append(buf, ch)
-				} else {
-					inject_at(buf, ts.cursor, ch)
+		if !mgr.input.key_ctrl {
+			for i in 0..<mgr.input.text_char_len {
+				ch := mgr.input.text_chars[i]
+				if ch >= 32 {
+					if ts.cursor >= len(buf^) {
+						append(buf, ch)
+					} else {
+						inject_at(buf, ts.cursor, ch)
+					}
+					ts.cursor += 1
 				}
-				ts.cursor += 1
 			}
 		}
 
@@ -209,7 +230,7 @@ text_input :: proc(
 	if !multiline && prev_rect.w > 0 {
 		viewport_w := prev_rect.w - padding[1] - padding[3]
 		if viewport_w > 0 {
-			cursor_px := measure_text_prefix(mgr, string(buf^[:]), ts.cursor, font, scale)
+			cursor_px := measure_text_prefix(mgr, string(buf^[:]), ts.cursor, effective_font, scale)
 			if cursor_px > ts.scroll_x + viewport_w {
 				ts.scroll_x = cursor_px - viewport_w
 			}
@@ -222,7 +243,7 @@ text_input :: proc(
 
 	// Auto-scroll for multiline: ensure cursor line is visible
 	if multiline {
-		line_h := get_line_height(mgr, font, scale)
+		line_h := get_line_height(mgr, effective_font, scale)
 		// Find cursor line
 		cursor_line := 0
 		for i in 0..<ts.cursor {
@@ -247,16 +268,17 @@ text_input :: proc(
 	}
 
 	// Visual styling
-	//hover_t := get_hover_t(mgr, id, .Hovered in interaction)
+	hover_t := get_hover_t(mgr, id, .Hovered in interaction)
 	focus_t := get_focus_t(mgr, id, is_focused)
-	border := color_lerp(THEME_BORDER, color.focus, focus_t)
+	border_base := color_lerp(color.fg, color.hover, hover_t)
+	border := color_lerp(border_base, color.focus, focus_t)
 
 	// Display text (show placeholder if buffer is empty)
 	display_text := string(buf^[:]) if len(buf^) > 0 else placeholder
-	text_color := label_color.label if len(buf^) > 0 else label_color.label / COLOR_DIM
+	display_color := text_color if len(buf^) > 0 else placeholder_color
 	// Compute size
 	actual_size := size
-	line_h := get_line_height(mgr, font, scale)
+	line_h := get_line_height(mgr, effective_font, scale)
 	if !multiline {
 		if actual_size[1].kind == .Fit {
 			actual_size[1] = size_fixed(line_h + padding[0] + padding[2])
@@ -282,9 +304,9 @@ text_input :: proc(
 	append(&mgr.deferred_texts, Deferred_Text{
 		box_index = idx,
 		text      = display_text,
-		color     = text_color,
+		color     = display_color,
 		scale     = scale,
-		font      = font,
+		font      = effective_font,
 		center_h  = false,
 		center_v  = !multiline,
 		clip      = true,
@@ -302,7 +324,8 @@ text_input :: proc(
 				cursor_pos = ts.cursor,
 				multiline  = multiline,
 				text       = string(buf^[:]),
-				font       = font,
+				font       = effective_font,
+				color      = cursor_color,
 				offset_x   = -ts.scroll_x if !multiline else 0,
 				offset_y   = -ts.scroll_y if multiline else 0,
 			},
@@ -314,4 +337,25 @@ text_input :: proc(
 	append(&mgr.widget_box_map, Widget_Box_Entry{id = id, box_index = idx})
 
 	return interaction, ts
+}
+
+insert_text_at_cursor :: proc(buf: ^[dynamic]u8, cursor: ^int, text: string, multiline: bool) {
+	for ch in transmute([]u8)text {
+		if ch == 0 || ch == '\r' {
+			continue
+		}
+		if ch == '\n' && !multiline {
+			continue
+		}
+		if ch < 32 && !(multiline && ch == '\n') {
+			continue
+		}
+
+		if cursor^ >= len(buf^) {
+			append(buf, ch)
+		} else {
+			inject_at(buf, cursor^, ch)
+		}
+		cursor^ += 1
+	}
 }

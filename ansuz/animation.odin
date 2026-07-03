@@ -73,6 +73,19 @@ animate_f32 :: proc(
 	loc        := #caller_location,
 ) {
 	id := id_from_ptr_loc(&mgr.id_stack, value, loc)
+	animate_f32_id(mgr, id, value, target, duration, easing, looping, ping_pong)
+}
+
+animate_f32_id :: proc(
+	mgr:       ^Manager,
+	id:        Widget_ID,
+	value:     ^f32,
+	target:    f32,
+	duration:  f32       = 0.3,
+	easing:    Ease_Func = .Quadratic_Out,
+	looping:   bool      = false,
+	ping_pong: bool      = false,
+) {
 	from := value^
 
 	anim := alloc_animation(&mgr.anim_pool, id)
@@ -99,6 +112,17 @@ animate_color :: proc(
 	loc       := #caller_location,
 ) {
 	id := id_from_ptr_loc(&mgr.id_stack, value, loc)
+	animate_color_id(mgr, id, value, target, duration, easing)
+}
+
+animate_color_id :: proc(
+	mgr:      ^Manager,
+	id:       Widget_ID,
+	value:    ^Color,
+	target:   Color,
+	duration: f32       = 0.3,
+	easing:   Ease_Func = .Quadratic_Out,
+) {
 	from := value^
 
 	anim := alloc_animation(&mgr.anim_pool, id)
@@ -118,6 +142,10 @@ animate_color :: proc(
 // Cancel all animations on a value.
 cancel_animation :: proc(mgr: ^Manager, ptr: rawptr, loc := #caller_location) {
 	id := id_from_ptr_loc(&mgr.id_stack, ptr, loc)
+	cancel_animation_id(mgr, id)
+}
+
+cancel_animation_id :: proc(mgr: ^Manager, id: Widget_ID) {
 	for &anim in mgr.anim_pool.anims {
 		if anim.id == id && anim.state == .Running {
 			anim.state = .Finished
@@ -129,6 +157,10 @@ cancel_animation :: proc(mgr: ^Manager, ptr: rawptr, loc := #caller_location) {
 // Check if a value currently has an active animation.
 is_animating :: proc(mgr: ^Manager, ptr: rawptr, loc := #caller_location) -> bool {
 	id := id_from_ptr_loc(&mgr.id_stack, ptr, loc)
+	return is_animating_id(mgr, id)
+}
+
+is_animating_id :: proc(mgr: ^Manager, id: Widget_ID) -> bool {
 	for anim in mgr.anim_pool.anims {
 		if anim.id == id && anim.state == .Running {
 			return true
@@ -150,12 +182,23 @@ spring_f32 :: proc(
 	epsilon:  f32       = 0.001,
 	loc       := #caller_location,
 ) {
+	id := id_from_ptr_loc(&mgr.id_stack, value, loc)
+	spring_f32_id(mgr, id, value, target, duration, easing, epsilon)
+}
+
+spring_f32_id :: proc(
+	mgr:      ^Manager,
+	id:       Widget_ID,
+	value:    ^f32,
+	target:   f32,
+	duration: f32       = 0.15,
+	easing:   Ease_Func = .Quadratic_Out,
+	epsilon:  f32       = 0.001,
+) {
 	if abs(value^ - target) < epsilon {
 		value^ = target
 		return
 	}
-
-	id := id_from_ptr_loc(&mgr.id_stack, value, loc)
 
 	// Check if already animating toward this target
 	for anim in mgr.anim_pool.anims {
@@ -167,7 +210,7 @@ spring_f32 :: proc(
 		}
 	}
 
-	animate_f32(mgr, value, target, duration, easing, loc = loc)
+	animate_f32_id(mgr, id, value, target, duration, easing)
 }
 
 // --- Internal ---
@@ -180,11 +223,17 @@ anim_pool_init :: proc(pool: ^Anim_Pool) {
 // Tick all active animations. Called at the start of each frame.
 anim_pool_tick :: proc(pool: ^Anim_Pool) {
 	now := time.now()
-	pool.dt = f32(time.duration_seconds(time.diff(pool.prev_time, now)))
+	dt := f32(time.duration_seconds(time.diff(pool.prev_time, now)))
 	pool.prev_time = now
 
 	// Clamp dt to avoid huge jumps on resume/breakpoint
-	pool.dt = clamp(pool.dt, 0, 0.1)
+	anim_pool_tick_dt(pool, dt)
+}
+
+// Tick animations using a caller-provided delta time. This is useful on
+// freestanding targets where the host application owns the frame clock.
+anim_pool_tick_dt :: proc(pool: ^Anim_Pool, dt: f32) {
+	pool.dt = clamp(dt, 0, 0.1)
 
 	for &anim in pool.anims {
 		if anim.state != .Running {

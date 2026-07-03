@@ -203,13 +203,13 @@ main :: proc() {
 
 		// --- Sliders ---
 		ansuz.label(&mgr, "Sliders", color = ansuz.COLOR_WHITE, font=ansuz.FONT_BUILTIN)
-		ansuz.slider_labeled(&mgr, "Value", ansuz.FONT_BUILTIN, &slider_val, 0, 1)
+		ansuz.slider_labeled(&mgr, "Value", &slider_val, 0, 1, font = ansuz.FONT_BUILTIN)
 
 		ansuz.flex_begin(&mgr, axis = .Horizontal, gap = 16, size = {ansuz.SIZE_GROW, ansuz.SIZE_FIT}, align = .Center)
 		ansuz.flex_begin(&mgr, axis = .Vertical, gap = 4, size = {ansuz.SIZE_GROW, ansuz.SIZE_FIT})
-		ansuz.slider_labeled(&mgr, "R", ansuz.FONT_BUILTIN, &r_val, 0, 1, scale=0.5)
-		ansuz.slider_labeled(&mgr, "G", ansuz.FONT_BUILTIN, &g_val, 0, 1, scale=0.5)
-		ansuz.slider_labeled(&mgr, "B", ansuz.FONT_BUILTIN, &b_val, 0, 1, scale=0.5)
+		ansuz.slider_labeled(&mgr, "R", &r_val, 0, 1, scale=0.5, font = ansuz.FONT_BUILTIN)
+		ansuz.slider_labeled(&mgr, "G", &g_val, 0, 1, scale=0.5, font = ansuz.FONT_BUILTIN)
+		ansuz.slider_labeled(&mgr, "B", &b_val, 0, 1, scale=0.5, font = ansuz.FONT_BUILTIN)
 		ansuz.flex_end(&mgr)
 		
 		ansuz.box(&mgr, size = {ansuz.size_fixed(60), ansuz.size_fixed(60)}, bg_color = preview_color)

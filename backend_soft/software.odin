@@ -25,6 +25,7 @@ Soft_Image :: struct {
 Soft_Data :: struct {
 	framebuffer: []u32,   // RGBA32 pixels, size = width * height
 	clip:        ansuz.Rect,
+	clear_color: ansuz.Color,
 }
 
 // Create a software renderer backend targeting a pixel buffer.
@@ -35,6 +36,7 @@ create :: proc(width, height: i32, framebuffer: []u32) -> ansuz.Backend {
 	data := new(Soft_Data)
 	data.framebuffer = framebuffer
 	data.clip = ansuz.Rect{0, 0, f32(width), f32(height)}
+	data.clear_color = ansuz.Color{30, 30, 34, 255}
 
 	backend: ansuz.Backend
 	backend.width      = width
@@ -58,6 +60,11 @@ get_framebuffer :: proc(backend: ^ansuz.Backend) -> []u32 {
 	return data.framebuffer
 }
 
+set_clear_color :: proc(backend: ^ansuz.Backend, color: ansuz.Color) {
+	data := cast(^Soft_Data)backend.user_data
+	data.clear_color = color
+}
+
 // --- Backend proc implementations ---
 
 soft_init :: proc(backend: ^ansuz.Backend, width, height: i32) -> bool {
@@ -76,7 +83,7 @@ soft_shutdown :: proc(backend: ^ansuz.Backend) {
 soft_begin_frame :: proc(backend: ^ansuz.Backend) {
 	data := cast(^Soft_Data)backend.user_data
 	// Clear to dark background
-	clear_color := pack_rgba(30, 30, 34, 255)
+	clear_color := pack_rgba(data.clear_color.r, data.clear_color.g, data.clear_color.b, data.clear_color.a)
 	for i in 0..<int(backend.width * backend.height) {
 		data.framebuffer[i] = clear_color
 	}

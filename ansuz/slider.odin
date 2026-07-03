@@ -23,7 +23,7 @@ slider_f32 :: proc(
 	lo:    f32 = 0,
 	hi:    f32 = 1,
 	scale: f32 = 1.0,
-	color := Widget_Color{
+	color: Widget_Color = Widget_Color{
 		bg    = THEME_SLIDER_TRACK,
 		fg    = THEME_SLIDER_FILL,
 		hover = THEME_SLIDER_FILL_HOVER,
@@ -81,7 +81,7 @@ slider_f32 :: proc(
 		box_index = idx,
 		kind      = .Slider,
 		scale     = scale,
-		color=color,
+		color     = color,
 		slider    = Deferred_Slider_Data{
 			t           = t,
 			interaction = interaction,
@@ -99,31 +99,29 @@ slider :: proc{slider_f32}
 slider_labeled :: proc(
 	mgr:    ^Manager,
 	text:   string,
-	font: Font_Handle,
-	color := Widget_Color{
+	value:  ^f32,
+	lo:     f32 = 0,
+	hi:     f32 = 1,
+	scale:  f32 = 1.0,
+	format: string = "%.2f",
+	font: Font_Handle = FONT_DEFAULT,
+	color: Widget_Color = Widget_Color{
 		bg    = THEME_SLIDER_TRACK,
 		fg    = THEME_SLIDER_FILL,
 		hover = THEME_SLIDER_FILL_HOVER,
 		press = THEME_SLIDER_THUMB_ACTIVE,
 		focus = THEME_SLIDER_THUMB,
 	},
-	label_color := Label_Color{
-		bg    = COLOR_TRANSPARENT,
-		label = THEME_TEXT,
-	},
-	value:  ^f32,
-	lo:     f32 = 0,
-	hi:     f32 = 1,
-	scale:  f32 = 1.0,
-	format: string = "%.2f",
+	text_color: Color = THEME_TEXT,
 	loc     := #caller_location,
 ) -> Interaction {
+	effective_font := resolve_font(mgr, font)
 	row_h := SLIDER_DEFAULT_HEIGHT * scale
 	gap := max(2, 10 * scale)
 	flex_begin(mgr, axis = .Horizontal, gap = gap, align = .Center, size = {SIZE_GROW, size_fixed(row_h)}, loc = loc)
-	label(mgr, text, scale = scale * DEFAULT_FONT_SCALE, font=font, color=label_color)
-	interaction := slider_f32(mgr, value, lo, hi, scale = scale, size = {SIZE_GROW, size_fixed(row_h)}, color=color)
-	label(mgr, fmt.tprintf(format, value^), scale = scale * DEFAULT_FONT_SCALE, color = label_color, font=font)
+	label(mgr, text, scale = scale * DEFAULT_FONT_SCALE, font = effective_font, color = text_color)
+	interaction := slider_f32(mgr, value, lo, hi, scale = scale, size = {SIZE_GROW, size_fixed(row_h)}, color = color)
+	label(mgr, fmt.tprintf(format, value^), scale = scale * DEFAULT_FONT_SCALE, color = text_color, font = effective_font)
 	flex_end(mgr)
 	return interaction
 }

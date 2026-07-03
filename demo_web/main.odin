@@ -156,18 +156,14 @@ step :: proc(dt: f32) -> bool {
 		)
 		preview_color := ansuz.Color{u8(r_val * 255), u8(g_val * 255), u8(b_val * 255), 255} //Controlled by sliders below
 
-		header_color := ansuz.Label_Color {
-			bg    = ansuz.COLOR_DARK_GRAY,
-			label = preview_color,
-		}
-
 		ansuz.heading(
 			&mgr,
 			"Ansuz Demo",
 			scale = 10,
 			font = opensans_bold,
 			padding = {0, 900, 0, header_anim_val},
-			color = header_color,
+			color = preview_color,
+			bg_color = ansuz.COLOR_DARK_GRAY,
 		)
 
 
@@ -177,7 +173,7 @@ step :: proc(dt: f32) -> bool {
 			scale = 4,
 			font = opensans,
 			padding = {-10, 0, 0, 0},
-			color = ansuz.Label_Color{label = ansuz.THEME_TEXT_DIM},
+			color = ansuz.THEME_TEXT_DIM,
 		)
 		ansuz.box(
 			&mgr,
@@ -223,7 +219,7 @@ step :: proc(dt: f32) -> bool {
 
 		//sliders
 		ansuz.label(&mgr, "Sliders", font = opensans_bold)
-		ansuz.slider_labeled(&mgr, "Value", opensans, value = &slider_val)
+		ansuz.slider_labeled(&mgr, "Value", &slider_val, font = opensans)
 
 		ansuz.flex_begin(
 			&mgr,
@@ -233,9 +229,9 @@ step :: proc(dt: f32) -> bool {
 			align = .Center,
 		)
 		ansuz.flex_begin(&mgr, axis = .Vertical, gap = 4, size = {ansuz.SIZE_GROW, ansuz.SIZE_FIT})
-		ansuz.slider_labeled(&mgr, "R", opensans, value = &r_val)
-		ansuz.slider_labeled(&mgr, "G", opensans, value = &g_val)
-		ansuz.slider_labeled(&mgr, "B", opensans, value = &b_val)
+		ansuz.slider_labeled(&mgr, "R", &r_val, font = opensans)
+		ansuz.slider_labeled(&mgr, "G", &g_val, font = opensans)
+		ansuz.slider_labeled(&mgr, "B", &b_val, font = opensans)
 		ansuz.flex_end(&mgr)
 		ansuz.box(&mgr, size = {ansuz.size_fixed(60), ansuz.size_fixed(60)})
 		ansuz.flex_end(&mgr)

@@ -67,13 +67,24 @@ font_atlas_glyph :: proc(font: ^Font, ch: rune) -> Font_Glyph_Info {
 }
 
 FONT_BUILTIN :: Font_Handle(0)
+FONT_DEFAULT :: Font_Handle(0xffffffff)
+
+// Resolve an optional widget font override. FONT_DEFAULT means "use the
+// manager's configured default"; FONT_BUILTIN remains an explicit bitmap font.
+resolve_font :: proc(mgr: ^Manager, font: Font_Handle = FONT_DEFAULT) -> Font_Handle {
+	if font == FONT_DEFAULT {
+		return mgr.default_font
+	}
+	return font
+}
 
 // Measure text using the specified font, handling scale normalization for TTF fonts.
 measure_text :: proc(mgr: ^Manager, text: string, font: Font_Handle, scale: f32) -> Vec2 {
-	if font == FONT_BUILTIN || len(mgr.fonts) == 0 || int(font) - 1 >= len(mgr.fonts) {
+	effective_font := resolve_font(mgr, font)
+	if effective_font == FONT_BUILTIN || len(mgr.fonts) == 0 || int(effective_font) - 1 >= len(mgr.fonts) {
 		return measure_text_builtin(text, scale)
 	}
-	f := &mgr.fonts[int(font) - 1]
+	f := &mgr.fonts[int(effective_font) - 1]
 	return measure_text_atlas(text, f, scale * f.scale_norm)
 }
 
@@ -104,29 +115,32 @@ measure_text_atlas :: proc(text: string, font: ^Font, effective_scale: f32) -> V
 // For the builtin bitmap font, returns the scale unchanged.
 // For TTF fonts, normalizes so that widget scale values produce equivalent visual sizes.
 get_effective_scale :: proc(mgr: ^Manager, font: Font_Handle, scale: f32) -> f32 {
-	if font == FONT_BUILTIN || len(mgr.fonts) == 0 || int(font) - 1 >= len(mgr.fonts) {
+	effective_font := resolve_font(mgr, font)
+	if effective_font == FONT_BUILTIN || len(mgr.fonts) == 0 || int(effective_font) - 1 >= len(mgr.fonts) {
 		return scale
 	}
-	return scale * mgr.fonts[int(font) - 1].scale_norm
+	return scale * mgr.fonts[int(effective_font) - 1].scale_norm
 }
 
 // Get the line height in pixels for a font at a given scale.
 get_line_height :: proc(mgr: ^Manager, font: Font_Handle, scale: f32) -> f32 {
-	if font == FONT_BUILTIN || len(mgr.fonts) == 0 || int(font) - 1 >= len(mgr.fonts) {
+	effective_font := resolve_font(mgr, font)
+	if effective_font == FONT_BUILTIN || len(mgr.fonts) == 0 || int(effective_font) - 1 >= len(mgr.fonts) {
 		return f32(FONT_CHAR_HEIGHT) * scale
 	}
-	f := &mgr.fonts[int(font) - 1]
+	f := &mgr.fonts[int(effective_font) - 1]
 	return f.line_height * scale * f.scale_norm
 }
 
 // Measure the pixel width of the first `count` characters of `text` (single line, no newline handling).
 // Used for cursor positioning in text inputs with proportional fonts.
 measure_text_prefix :: proc(mgr: ^Manager, text: string, count: int, font: Font_Handle, scale: f32) -> f32 {
+	effective_font := resolve_font(mgr, font)
 	n := min(count, len(text))
-	if font == FONT_BUILTIN || len(mgr.fonts) == 0 || int(font) - 1 >= len(mgr.fonts) {
+	if effective_font == FONT_BUILTIN || len(mgr.fonts) == 0 || int(effective_font) - 1 >= len(mgr.fonts) {
 		return f32(n) * f32(FONT_CHAR_WIDTH) * scale
 	}
-	f := &mgr.fonts[int(font) - 1]
+	f := &mgr.fonts[int(effective_font) - 1]
 	eff := scale * f.scale_norm
 	width: f32 = 0
 	i := 0
@@ -141,12 +155,13 @@ measure_text_prefix :: proc(mgr: ^Manager, text: string, count: int, font: Font_
 // Find the character index closest to a given pixel x-offset within `text` (single line).
 // Returns the insertion position (0..len) that best matches the click position.
 hit_test_text :: proc(mgr: ^Manager, text: string, x_offset: f32, font: Font_Handle, scale: f32) -> int {
-	if font == FONT_BUILTIN || len(mgr.fonts) == 0 || int(font) - 1 >= len(mgr.fonts) {
+	effective_font := resolve_font(mgr, font)
+	if effective_font == FONT_BUILTIN || len(mgr.fonts) == 0 || int(effective_font) - 1 >= len(mgr.fonts) {
 		char_w := f32(FONT_CHAR_WIDTH) * scale
 		col := int(x_offset / char_w + 0.5)
 		return clamp(col, 0, len(text))
 	}
-	f := &mgr.fonts[int(font) - 1]
+	f := &mgr.fonts[int(effective_font) - 1]
 	eff := scale * f.scale_norm
 	accum: f32 = 0
 	i := 0

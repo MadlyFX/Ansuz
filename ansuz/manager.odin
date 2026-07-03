@@ -82,6 +82,7 @@ Manager :: struct {
 	popup_draws:      [dynamic]Popup_Draw,
 	popup_owner:      Widget_ID,  // ID of the widget that owns the currently open popup
 	popup_block:      bool,       // block all interaction until mouse released (popup just closed)
+	modal_owner:      Widget_ID,  // Optional ancestor ID allowed to receive interaction.
 
 	// Animation pool
 	anim_pool:        Anim_Pool,
@@ -163,7 +164,7 @@ shutdown :: proc(mgr: ^Manager) {
 }
 
 // Begin a new frame. Call this at the top of your frame loop.
-frame_begin :: proc(mgr: ^Manager) {
+frame_begin :: proc(mgr: ^Manager, dt: f32 = -1) {
 	// Reset per-frame allocations
 	free_all(mgr.frame_allocator)
 	clear(&mgr.boxes)
@@ -180,7 +181,11 @@ frame_begin :: proc(mgr: ^Manager) {
 	mgr.frame_id += 1
 
 	// Tick animations (before input so animated values are updated before widgets read them)
-	anim_pool_tick(&mgr.anim_pool)
+	if dt >= 0 {
+		anim_pool_tick_dt(&mgr.anim_pool, dt)
+	} else {
+		anim_pool_tick(&mgr.anim_pool)
+	}
 
 	// Poll backend for input events
 	if mgr.backend.poll_events != nil {
@@ -230,51 +235,22 @@ frame_end :: proc(mgr: ^Manager) {
 	// Run layout solver
 	resolve_layout(mgr)
 
-	// Emit draw commands via tree walk (enables proper clip nesting for scrollboxes)
-	if len(mgr.boxes) > 0 {
-		full_screen := Rect{0, 0, f32(mgr.backend.width), f32(mgr.backend.height)}
-		emit_box_tree(mgr, 0, full_screen, false)
-	}
-
-	// Emit deferred text draw commands (now that layout rects are resolved)
 	full_screen := Rect{0, 0, f32(mgr.backend.width), f32(mgr.backend.height)}
-	needs_clip_reset := false
-	for &dt in mgr.deferred_texts {
-		b := &mgr.boxes[dt.box_index]
-		text_size := measure_text(mgr, dt.text, dt.font, dt.scale)
-		eff_scale := get_effective_scale(mgr, dt.font, dt.scale)
-		cr := b.content_rect
 
-		// Only push clip when the box is inside a clipping ancestor or needs its own clip
-		if b.is_clipped || dt.clip {
-			clip := b.effective_clip
-			if dt.clip {
-				clip = rect_intersect(clip, cr)
-			}
-			push_clip(&mgr.draw_list, clip)
-			needs_clip_reset = true
-		} else if needs_clip_reset {
-			push_clip(&mgr.draw_list, full_screen)
-			needs_clip_reset = false
-		}
-
-		tx := cr.x + dt.offset_x
-		ty := cr.y + dt.offset_y
-		if dt.center_h {
-			tx = cr.x + (cr.w - text_size.x) / 2
-		}
-		if dt.center_v {
-			ty = cr.y + (cr.h - text_size.y) / 2
-		}
-
-		push_text(&mgr.draw_list, {tx, ty}, dt.text, dt.color, dt.font, eff_scale)
+	// Emit normal-layer draw commands via tree walk (enables proper clip nesting for scrollboxes)
+	if len(mgr.boxes) > 0 {
+		emit_box_tree(mgr, 0, full_screen, false, false)
 	}
-	if needs_clip_reset {
-		push_clip(&mgr.draw_list, full_screen)
-	}
+	emit_deferred_texts(mgr, false)
+	emit_deferred_draws(mgr, false)
 
-	// Emit deferred custom draws (sliders, checkmarks, arrows, etc.)
-	emit_deferred_draws(mgr)
+	// Floating boxes render after normal text/draws, so modal backgrounds
+	// cover the UI below them instead of sitting underneath deferred text.
+	if len(mgr.boxes) > 0 {
+		emit_box_tree(mgr, 0, full_screen, false, true)
+	}
+	emit_deferred_texts(mgr, true)
+	emit_deferred_draws(mgr, true)
 
 	// Update widget prev_rects for next frame's hit testing
 	for entry in mgr.widget_box_map {
@@ -325,10 +301,54 @@ frame_end :: proc(mgr: ^Manager) {
 	mgr.input.key_home = false
 	mgr.input.key_end = false
 	mgr.input.key_enter = false
+	mgr.input.key_copy = false
+	mgr.input.key_paste = false
+	mgr.input.key_cut = false
 	mgr.input.mouse_scroll_y = 0
 
 	// GC: remove widget states not seen for 60 frames
 	gc_stale_states(mgr)
+}
+
+emit_deferred_texts :: proc(mgr: ^Manager, floating: bool) {
+	full_screen := Rect{0, 0, f32(mgr.backend.width), f32(mgr.backend.height)}
+	needs_clip_reset := false
+	for &dt in mgr.deferred_texts {
+		if box_is_floating(mgr, dt.box_index) != floating {
+			continue
+		}
+		b := &mgr.boxes[dt.box_index]
+		text_size := measure_text(mgr, dt.text, dt.font, dt.scale)
+		eff_scale := get_effective_scale(mgr, dt.font, dt.scale)
+		cr := b.content_rect
+
+		// Only push clip when the box is inside a clipping ancestor or needs its own clip
+		if b.is_clipped || dt.clip {
+			clip := b.effective_clip
+			if dt.clip {
+				clip = rect_intersect(clip, cr)
+			}
+			push_clip(&mgr.draw_list, clip)
+			needs_clip_reset = true
+		} else if needs_clip_reset {
+			push_clip(&mgr.draw_list, full_screen)
+			needs_clip_reset = false
+		}
+
+		tx := cr.x + dt.offset_x
+		ty := cr.y + dt.offset_y
+		if dt.center_h {
+			tx = cr.x + (cr.w - text_size.x) / 2
+		}
+		if dt.center_v {
+			ty = cr.y + (cr.h - text_size.y) / 2
+		}
+
+		push_text(&mgr.draw_list, {tx, ty}, dt.text, dt.color, dt.font, eff_scale)
+	}
+	if needs_clip_reset {
+		push_clip(&mgr.draw_list, full_screen)
+	}
 }
 
 // Returns true if the application should quit.
@@ -359,25 +379,37 @@ pop_id :: proc(mgr: ^Manager) {
 // Recursive tree walk for draw emission. Handles clip push/pop for scroll containers.
 // parent_clip is the active clip region inherited from the ancestor chain.
 // parent_is_clipped is true when any ancestor has Clip_Children set.
-emit_box_tree :: proc(mgr: ^Manager, idx: int, parent_clip: Rect, parent_is_clipped: bool) {
+emit_box_tree :: proc(
+	mgr: ^Manager,
+	idx: int,
+	parent_clip: Rect,
+	parent_is_clipped: bool,
+	include_floating: bool,
+	parent_is_floating: bool = false,
+) {
 	b := &mgr.boxes[idx]
+	self_is_floating := parent_is_floating || .Is_Floating in b.flags
+	draw_self := self_is_floating == include_floating
+	if idx == 0 {
+		draw_self = !include_floating
+	}
 
 	// Store effective clip so deferred draws (text, sliders, etc.) can use it
 	b.effective_clip = parent_clip
 	b.is_clipped = parent_is_clipped
 
 	// Draw background
-	if b.bg_color.a > 0 {
+	if draw_self && b.bg_color.a > 0 {
 		push_filled_rect(&mgr.draw_list, b.computed_rect, b.bg_color, b.corner_radius)
 	}
 	// Draw border
-	if b.border_width > 0 && b.border_color.a > 0 {
+	if draw_self && b.border_width > 0 && b.border_color.a > 0 {
 		push_rect_outline(&mgr.draw_list, b.computed_rect, b.border_color, b.border_width, b.corner_radius)
 	}
 
 	// Push clip for containers that clip children (scrollboxes).
 	// Intersect with parent clip so nested clips are properly contained.
-	clipping := .Clip_Children in b.flags
+	clipping := draw_self && .Clip_Children in b.flags
 	current_clip := parent_clip
 	child_is_clipped := parent_is_clipped
 	if clipping {
@@ -389,7 +421,7 @@ emit_box_tree :: proc(mgr: ^Manager, idx: int, parent_clip: Rect, parent_is_clip
 	// Recurse into children
 	child := b.first_child
 	for child != -1 {
-		emit_box_tree(mgr, child, current_clip, child_is_clipped)
+		emit_box_tree(mgr, child, current_clip, child_is_clipped, include_floating, self_is_floating)
 		child = mgr.boxes[child].next_sibling
 	}
 
@@ -397,6 +429,17 @@ emit_box_tree :: proc(mgr: ^Manager, idx: int, parent_clip: Rect, parent_is_clip
 	if clipping {
 		push_clip(&mgr.draw_list, parent_clip)
 	}
+}
+
+box_is_floating :: proc(mgr: ^Manager, idx: int) -> bool {
+	cursor := idx
+	for cursor != -1 {
+		if .Is_Floating in mgr.boxes[cursor].flags {
+			return true
+		}
+		cursor = mgr.boxes[cursor].parent_index
+	}
+	return false
 }
 
 // --- Font Management ---
@@ -422,15 +465,16 @@ when ODIN_OS != .Freestanding {
 
 // Set the default font used by all widgets (labels, buttons, headings, etc.).
 set_default_font :: proc(mgr: ^Manager, font: Font_Handle) {
-	if font == FONT_BUILTIN || (int(font) - 1 < len(mgr.fonts)) {
+	if font != FONT_DEFAULT && (font == FONT_BUILTIN || (int(font) - 1 < len(mgr.fonts))) {
 		mgr.default_font = font
 	}
 }
 
 // Get a pointer to a loaded Font by handle. Returns nil for FONT_BUILTIN or invalid handles.
 get_font :: proc(mgr: ^Manager, handle: Font_Handle) -> ^Font {
-	if handle == FONT_BUILTIN || int(handle) - 1 >= len(mgr.fonts) { return nil }
-	return &mgr.fonts[int(handle) - 1]
+	effective_handle := resolve_font(mgr, handle)
+	if effective_handle == FONT_BUILTIN || int(effective_handle) - 1 >= len(mgr.fonts) { return nil }
+	return &mgr.fonts[int(effective_handle) - 1]
 }
 
 // --- Internal ---

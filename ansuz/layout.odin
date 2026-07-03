@@ -12,7 +12,9 @@ flex_begin :: proc(
 	gap:      f32        = 0,
 	size:     [2]Size_Spec = GROW_GROW,
 	padding:  [4]f32     = {},
+	margin:   [4]f32     = {},
 	bg_color: Color      = COLOR_TRANSPARENT,
+	floating: bool       = false,
 	loc       := #caller_location,
 ) {
 	id := id_from_loc(&mgr.id_stack, loc)
@@ -25,11 +27,41 @@ flex_begin :: proc(
 	b.gap         = gap
 	b.size        = size
 	b.padding     = padding
+	b.margin      = margin
 	b.bg_color    = bg_color
+	if floating {
+		b.flags += {.Is_Floating}
+	}
 }
 
 // End a flex container.
 flex_end :: proc(mgr: ^Manager) {
+	pop_box(mgr)
+}
+
+stack_begin :: proc(
+	mgr:      ^Manager,
+	size:     [2]Size_Spec = GROW_GROW,
+	padding:  [4]f32       = {},
+	margin:   [4]f32       = {},
+	bg_color: Color        = COLOR_TRANSPARENT,
+	floating: bool         = false,
+	loc       := #caller_location,
+) {
+	id := id_from_loc(&mgr.id_stack, loc)
+	idx := push_box(mgr, id)
+	b := &mgr.boxes[idx]
+	b.layout_kind = .Stack
+	b.size        = size
+	b.padding     = padding
+	b.margin      = margin
+	b.bg_color    = bg_color
+	if floating {
+		b.flags += {.Is_Floating}
+	}
+}
+
+stack_end :: proc(mgr: ^Manager) {
 	pop_box(mgr)
 }
 
@@ -69,6 +101,7 @@ box :: proc(
 	size:     [2]Size_Spec = GROW_GROW,
 	bg_color: Color        = COLOR_TRANSPARENT,
 	margin:   [4]f32       = {},
+	floating: bool         = false,
 	loc       := #caller_location,
 ) -> int {
 	id := id_from_loc(&mgr.id_stack, loc)
@@ -77,6 +110,9 @@ box :: proc(
 	b.size     = size
 	b.bg_color = bg_color
 	b.margin   = margin
+	if floating {
+		b.flags += {.Is_Floating}
+	}
 	// Leaf box: immediately pop (no children)
 	pop_box(mgr)
 	return idx

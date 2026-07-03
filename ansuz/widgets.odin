@@ -13,11 +13,6 @@ THEME_TEXT :: Color{230, 230, 230, 255}
 THEME_TEXT_DIM :: Color{160, 160, 165, 255}
 THEME_BORDER :: Color{80, 83, 90, 255}
 
-Label_Color :: struct {
-	bg:    Color,
-	label: Color,
-}
-
 List_Options :: enum {
 	Numbered,
 	Bulleted,
@@ -25,8 +20,8 @@ List_Options :: enum {
 	None,
 }
 
-// Scale for the built-in bitmap font (2 = 10x14 pixel characters)
-//Mutable so it can be shadowed for custom fonts with different native sizes.
+// Scale for the built-in bitmap font (2 = 10x14 pixel characters).
+// Mutable so it can be shadowed for custom fonts with different native sizes.
 DEFAULT_FONT_SCALE := f32(2)
 
 // --- Deferred Text Entry ---
@@ -52,16 +47,20 @@ Deferred_Text :: struct {
 label :: proc(
 	mgr: ^Manager,
 	text: string,
-	color := Label_Color{bg = COLOR_TRANSPARENT, label = THEME_TEXT},
-	font: Font_Handle,
+	color: Color = THEME_TEXT,
+	bg_color: Color = COLOR_TRANSPARENT,
+	font: Font_Handle = FONT_DEFAULT,
 	scale: f32 = DEFAULT_FONT_SCALE,
 	size: [2]Size_Spec = SIZE_FIT_FIT,
 	padding: [4]f32 = {2, 4, 2, 4},
+	clip: bool = false,
 	loc := #caller_location,
 ) -> int {
+	effective_font := resolve_font(mgr, font)
+
 	// If size is Fit, compute from text measurement
 	actual_size := size
-	text_dims := measure_text(mgr, text, font, scale)
+	text_dims := measure_text(mgr, text, effective_font, scale)
 	if actual_size[0].kind == .Fit {
 		actual_size[0] = size_fixed(text_dims.x + padding[1] + padding[3])
 	}
@@ -69,7 +68,7 @@ label :: proc(
 		actual_size[1] = size_fixed(text_dims.y + padding[0] + padding[2])
 	}
 
-	idx := box(mgr, size = actual_size, loc = loc, bg_color = color.bg)
+	idx := box(mgr, size = actual_size, loc = loc, bg_color = bg_color)
 	mgr.boxes[idx].padding = padding
 
 	// Defer text drawing until after layout
@@ -78,11 +77,12 @@ label :: proc(
 		Deferred_Text {
 			box_index = idx,
 			text = text,
-			color = color.label,
+			color = color,
 			scale = scale,
-			font = font,
+			font = effective_font,
 			center_h = false,
 			center_v = true,
+			clip = clip,
 		},
 	)
 
@@ -95,20 +95,20 @@ affix :: enum {
 	Suffix,
 }
 
-
 label_decorated :: proc(
 	mgr: ^Manager,
 	text: string,
 	decorator: string,
-	color := Label_Color{bg = COLOR_TRANSPARENT, label = THEME_TEXT},
+	color: Color = THEME_TEXT,
+	bg_color: Color = COLOR_TRANSPARENT,
 	affix: affix = .Prefix,
-	font: Font_Handle,
+	font: Font_Handle = FONT_DEFAULT,
 	scale: f32 = DEFAULT_FONT_SCALE,
 	size: [2]Size_Spec = SIZE_FIT_FIT,
 	padding: [4]f32 = {2, 4, 2, 4},
+	clip: bool = false,
 	loc := #caller_location,
 ) -> int {
-
 	output_text := text
 
 	if affix == .Prefix {
@@ -121,14 +121,15 @@ label_decorated :: proc(
 		mgr,
 		output_text,
 		color = color,
+		bg_color = bg_color,
 		scale = scale,
 		size = size,
 		padding = padding,
+		clip = clip,
 		loc = loc,
 		font = font,
 	)
 }
-
 
 // --- Button ---
 // Clickable button with text. Returns interaction flags.
@@ -139,18 +140,19 @@ button :: proc(
 	scale: f32 = DEFAULT_FONT_SCALE,
 	size: [2]Size_Spec = SIZE_FIT_FIT,
 	padding: [4]f32 = {6, 16, 6, 16},
-	loc := #caller_location,
-	color: Widget_Color = {
+	color: Widget_Color = Widget_Color{
 		bg = THEME_BG_BUTTON,
 		fg = THEME_BORDER,
 		hover = THEME_BG_BUTTON_HOVER,
 		press = THEME_BG_BUTTON_ACTIVE,
 		focus = THEME_BG_BUTTON_HOVER,
 	},
-	label_color: Label_Color = Label_Color{bg = THEME_BG_BUTTON, label = THEME_TEXT},
-	font: Font_Handle = FONT_BUILTIN,
+	text_color: Color = THEME_TEXT,
+	font: Font_Handle = FONT_DEFAULT,
+	clip: bool = false,
+	loc := #caller_location,
 ) -> Interaction {
-	effective_font := mgr.default_font if font == FONT_BUILTIN else font
+	effective_font := resolve_font(mgr, font)
 	id := id_from_loc(&mgr.id_stack, loc)
 
 	// Look up previous frame's rect for hit testing
@@ -198,11 +200,12 @@ button :: proc(
 		Deferred_Text {
 			box_index = idx,
 			text = text,
-			color = label_color.label,
+			color = text_color,
 			scale = scale,
 			font = effective_font,
 			center_h = true,
 			center_v = true,
+			clip = clip,
 		},
 	)
 
@@ -221,20 +224,24 @@ button :: proc(
 heading :: proc(
 	mgr: ^Manager,
 	text: string,
-	color := Label_Color{bg = COLOR_DARK_GRAY, label = THEME_TEXT},
-	font: Font_Handle,
+	color: Color = THEME_TEXT,
+	bg_color: Color = COLOR_DARK_GRAY,
+	font: Font_Handle = FONT_DEFAULT,
 	scale: f32 = 3,
 	size: [2]Size_Spec = SIZE_FIT_FIT,
 	padding: [4]f32 = {4, 4, 4, 4},
+	clip: bool = false,
 	loc := #caller_location,
 ) -> int {
 	return label(
 		mgr,
 		text,
 		color = color,
+		bg_color = bg_color,
 		scale = scale,
 		size = size,
 		padding = padding,
+		clip = clip,
 		loc = loc,
 		font = font,
 	)

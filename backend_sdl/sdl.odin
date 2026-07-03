@@ -1,6 +1,8 @@
 package ansuz_backend_sdl
 
 import "core:fmt"
+import "core:strings"
+import "base:runtime"
 import SDL "vendor:sdl3"
 import ansuz "../ansuz"
 
@@ -20,6 +22,7 @@ SDL_Font :: struct {
 SDL_Data :: struct {
 	window:              ^SDL.Window,
 	renderer:            ^SDL.Renderer,
+	title:               cstring,
 	builtin_font_texture: ^SDL.Texture,  // 16x16 grid of 5x7 glyphs = 80x112 atlas
 	loaded_fonts:        [dynamic]SDL_Font,
 }
@@ -31,6 +34,7 @@ create :: proc(width: i32 = 960, height: i32 = 540, title: cstring = "ansuz") ->
 	backend.height = height
 
 	data := new(SDL_Data)
+	data.title = title
 	backend.user_data = data
 
 	backend.init         = sdl_init
@@ -41,6 +45,8 @@ create :: proc(width: i32 = 960, height: i32 = 540, title: cstring = "ansuz") ->
 	backend.measure_text = sdl_measure_text
 	backend.poll_events  = sdl_poll_events
 	backend.load_font    = sdl_load_font
+	backend.set_clipboard_text = sdl_set_clipboard_text
+	backend.get_clipboard_text = sdl_get_clipboard_text
 
 	return backend
 }
@@ -56,7 +62,7 @@ sdl_init :: proc(backend: ^ansuz.Backend, width, height: i32) -> bool {
 	data := cast(^SDL_Data)backend.user_data
 
 	data.window = SDL.CreateWindow(
-		"ansuz",
+		data.title,
 		width, height,
 		{.RESIZABLE},
 	)
@@ -194,30 +200,150 @@ sdl_end_frame :: proc(backend: ^ansuz.Backend) {
 	SDL.RenderPresent(data.renderer)
 }
 
+draw_sdl_filled_rect :: proc(renderer: ^SDL.Renderer, rect: ansuz.Rect, radius: f32) {
+	if rect.w <= 0 || rect.h <= 0 {
+		return
+	}
+
+	r := clamp_radius(rect, radius)
+	if r < 1 {
+		sdl_rect := SDL.FRect{rect.x, rect.y, rect.w, rect.h}
+		SDL.RenderFillRect(renderer, &sdl_rect)
+		return
+	}
+
+	row_count := ceil_f32_to_int(rect.h)
+	for row in 0..<row_count {
+		row_y := f32(row)
+		if row_y >= rect.h {
+			break
+		}
+
+		row_h := min(f32(1), rect.h - row_y)
+		inset := rounded_row_inset(rect.h, r, row_y, row_h)
+		span_w := rect.w - inset * 2
+		if span_w <= 0 {
+			continue
+		}
+
+		span := SDL.FRect{rect.x + inset, rect.y + row_y, span_w, row_h}
+		SDL.RenderFillRect(renderer, &span)
+	}
+}
+
+draw_sdl_rect_outline :: proc(renderer: ^SDL.Renderer, rect: ansuz.Rect, thickness, radius: f32) {
+	if rect.w <= 0 || rect.h <= 0 || thickness <= 0 {
+		return
+	}
+
+	t := min(thickness, min(rect.w, rect.h) * 0.5)
+	r := clamp_radius(rect, radius)
+	row_count := ceil_f32_to_int(rect.h)
+
+	for row in 0..<row_count {
+		row_y := f32(row)
+		if row_y >= rect.h {
+			break
+		}
+
+		row_h := min(f32(1), rect.h - row_y)
+		center_y := row_y + row_h * 0.5
+		outer_inset := rounded_row_inset(rect.h, r, row_y, row_h)
+		outer_left := rect.x + outer_inset
+		outer_right := rect.x + rect.w - outer_inset
+
+		if outer_right <= outer_left {
+			continue
+		}
+
+		inner_exists := rect.w > t * 2 && rect.h > t * 2 && center_y >= t && center_y < rect.h - t
+		if !inner_exists {
+			span := SDL.FRect{outer_left, rect.y + row_y, outer_right - outer_left, row_h}
+			SDL.RenderFillRect(renderer, &span)
+			continue
+		}
+
+		inner_h := rect.h - t * 2
+		inner_radius := max(f32(0), r - t)
+		inner_inset := t + rounded_row_inset(inner_h, inner_radius, row_y - t, row_h)
+		inner_left := rect.x + inner_inset
+		inner_right := rect.x + rect.w - inner_inset
+
+		left_w := min(inner_left, outer_right) - outer_left
+		if left_w > 0 {
+			left := SDL.FRect{outer_left, rect.y + row_y, left_w, row_h}
+			SDL.RenderFillRect(renderer, &left)
+		}
+
+		right_x := max(inner_right, outer_left)
+		right_w := outer_right - right_x
+		if right_w > 0 {
+			right := SDL.FRect{right_x, rect.y + row_y, right_w, row_h}
+			SDL.RenderFillRect(renderer, &right)
+		}
+	}
+}
+
+clamp_radius :: proc(rect: ansuz.Rect, radius: f32) -> f32 {
+	if radius <= 0 {
+		return 0
+	}
+	return min(radius, min(rect.w, rect.h) * 0.5)
+}
+
+rounded_row_inset :: proc(height, radius, row_y, row_h: f32) -> f32 {
+	if radius <= 0 {
+		return 0
+	}
+
+	center_y := row_y + row_h * 0.5
+	dy: f32
+	if center_y < radius {
+		dy = radius - center_y
+	} else if center_y > height - radius {
+		dy = center_y - (height - radius)
+	} else {
+		return 0
+	}
+
+	span := sqrt_f32(max(f32(0), radius * radius - dy * dy))
+	return max(f32(0), radius - span)
+}
+
+ceil_f32_to_int :: proc(value: f32) -> int {
+	i := int(value)
+	if f32(i) < value {
+		return i + 1
+	}
+	return i
+}
+
+sqrt_f32 :: proc(x: f32) -> f32 {
+	if x <= 0 {
+		return 0
+	}
+
+	guess := x / 2
+	if guess < 1 {
+		guess = 1
+	}
+	for _ in 0..<10 {
+		guess = (guess + x / guess) / 2
+	}
+	return guess
+}
+
 sdl_execute :: proc(backend: ^ansuz.Backend, cmd: ansuz.Draw_Command) {
 	data := cast(^SDL_Data)backend.user_data
 
 	switch c in cmd {
 	case ansuz.Draw_Filled_Rect:
 		SDL.SetRenderDrawColor(data.renderer, c.color.r, c.color.g, c.color.b, c.color.a)
-		r := SDL.FRect{
-			f32(c.rect.x),
-			f32(c.rect.y),
-			f32(c.rect.w),
-			f32(c.rect.h),
-		}
-		SDL.RenderFillRect(data.renderer, &r)
-		
+		draw_sdl_filled_rect(data.renderer, c.rect, c.radius)
 
 	case ansuz.Draw_Rect_Outline:
 		SDL.SetRenderDrawColor(data.renderer, c.color.r, c.color.g, c.color.b, c.color.a)
-		r := SDL.FRect{
-			f32(c.rect.x),
-			f32(c.rect.y),
-			f32(c.rect.w),
-			f32(c.rect.h),
-		}
-		SDL.RenderRect(data.renderer, &r)
+		draw_sdl_rect_outline(data.renderer, c.rect, c.thickness, c.radius)
 
 	case ansuz.Draw_Line:
 		SDL.SetRenderDrawColor(data.renderer, c.color.r, c.color.g, c.color.b, c.color.a)
@@ -397,6 +523,9 @@ sdl_poll_events :: proc(backend: ^ansuz.Backend, input: ^ansuz.Input_State) -> b
 	input.key_home = false
 	input.key_end = false
 	input.key_enter = false
+	input.key_copy = false
+	input.key_paste = false
+	input.key_cut = false
 	input.mouse_scroll_y = 0
 
 	for e: SDL.Event; SDL.PollEvent(&e); /**/ {
@@ -443,6 +572,7 @@ sdl_poll_events :: proc(backend: ^ansuz.Backend, input: ^ansuz.Input_State) -> b
 			}
 
 		case .KEY_DOWN:
+			ctrl_down := input.key_ctrl || .LCTRL in e.key.mod || .RCTRL in e.key.mod
 			#partial switch e.key.scancode {
 			case .ESCAPE:
 				quit = true
@@ -464,6 +594,12 @@ sdl_poll_events :: proc(backend: ^ansuz.Backend, input: ^ansuz.Input_State) -> b
 				input.key_end = true
 			case .RETURN, .KP_ENTER:
 				input.key_enter = true
+			case .C:
+				if ctrl_down { input.key_copy = true }
+			case .V:
+				if ctrl_down { input.key_paste = true }
+			case .X:
+				if ctrl_down { input.key_cut = true }
 			case .LSHIFT, .RSHIFT:
 				input.key_shift = true
 			case .LCTRL, .RCTRL:
@@ -481,4 +617,23 @@ sdl_poll_events :: proc(backend: ^ansuz.Backend, input: ^ansuz.Input_State) -> b
 	}
 
 	return quit
+}
+
+sdl_set_clipboard_text :: proc(backend: ^ansuz.Backend, text: string) -> bool {
+	c_text, err := strings.clone_to_cstring(text, context.temp_allocator)
+	if err != nil {
+		return false
+	}
+	return SDL.SetClipboardText(c_text)
+}
+
+sdl_get_clipboard_text :: proc(backend: ^ansuz.Backend, allocator: runtime.Allocator) -> string {
+	ptr := SDL.GetClipboardText()
+	if ptr == nil {
+		return ""
+	}
+	defer SDL.free(rawptr(ptr))
+
+	n := int(SDL.strlen(cstring(ptr)))
+	return strings.clone(string(ptr[:n]), allocator)
 }

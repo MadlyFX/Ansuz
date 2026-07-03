@@ -42,6 +42,7 @@ Ansuz is still in development, the syntax especially is still quite inconsistant
 - `backend_sdl/`: SDL3 backend implementation
 - `backend_soft/`: Software framebuffer backend
 - `backend_webgl/`: WebGL backend for web builds
+- `bindings/c/`: Complete C ABI and public header for Arduino/freestanding use
 - `demo/`: Desktop SDL demo
 - `demo_soft/`: Software renderer demo
 - `demo_web/`: WebAssembly/WebGL demo
@@ -88,7 +89,7 @@ main :: proc() {
             padding = {16, 16, 16, 16},
         )
 
-        ansuz.label(&mgr, "Hello from ansuz", font = ansuz.FONT_BUILTIN)
+        ansuz.label(&mgr, "Hello from ansuz")
         _ = ansuz.button(&mgr, "Click")
 
         ansuz.flex_end(&mgr)
@@ -138,6 +139,20 @@ python3 -m http.server 8080
 
 Then open `http://localhost:8080`.
 
+### 4. Arduino Static Library
+
+```powershell
+cd demo_arduino_oled
+.\build.bat m4
+# or:
+.\build.bat rp2040
+```
+
+The build produces `build/libansuz.a` and `build/ansuz.h`. The Arduino sketch
+constructs the UI directly through the C interface; no application-specific UI
+code remains inside the Odin object. See
+[`bindings/c/README.md`](bindings/c/README.md) for the lifecycle and API usage.
+
 ## Core Frame Lifecycle
 
 Typical usage follows this order each frame:
@@ -165,9 +180,14 @@ This allows the same UI code to run on desktop, embedded-style software pipeline
 
 ## Fonts
 
-- Use `FONT_BUILTIN` for a zero-dependency bitmap font path.
-- Use `load_font` to load TTF fonts and `set_default_font` to make them the default for widgets.
+- Omit `font` to use the manager's default font. The built-in bitmap font is the initial default.
+- Use `FONT_BUILTIN` as an explicit per-widget override, even after setting a TTF default.
+- Use `load_font` and `set_default_font` to change the manager default for all widgets.
 - Demos use OpenSans for anti-aliased text rendering.
+
+Text colors use a plain `Color` override, while interactive widgets accept a
+`Widget_Color` palette for their state colors. All color arguments have built-in
+defaults and can be omitted.
 
 ## Current Widget Set
 

@@ -1,5 +1,7 @@
 package ansuz
 
+import "base:runtime"
+
 // --- Backend Interface ---
 // A struct of procedure pointers. Each rendering backend (SDL, software, etc.)
 // populates these with its own implementations.
@@ -29,6 +31,10 @@ Backend :: struct {
 	// Called when a new font is loaded, so the backend can create its GPU texture.
 	// font: pointer to the Font with atlas data. handle: the Font_Handle assigned.
 	load_font:    proc(backend: ^Backend, font: ^Font, handle: Font_Handle),
+
+	// Optional clipboard hooks for desktop/web backends.
+	set_clipboard_text: proc(backend: ^Backend, text: string) -> bool,
+	get_clipboard_text: proc(backend: ^Backend, allocator: runtime.Allocator) -> string,
 
 	// Backend-specific data
 	user_data:    rawptr,
@@ -65,6 +71,9 @@ Input_State :: struct {
 	key_home:      bool,
 	key_end:       bool,
 	key_enter:     bool,
+	key_copy:      bool,
+	key_paste:     bool,
+	key_cut:       bool,
 
 	// Modifier held states
 	key_shift:     bool,

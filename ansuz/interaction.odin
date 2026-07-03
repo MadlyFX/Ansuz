@@ -17,6 +17,12 @@ Interaction_Flag :: enum {
 compute_interaction :: proc(mgr: ^Manager, id: Widget_ID, rect: Rect) -> Interaction {
 	result: Interaction
 
+	if mgr.modal_owner != ID_NONE &&
+	   mgr.modal_owner != id &&
+	   !id_stack_contains(&mgr.id_stack, mgr.modal_owner) {
+		return result
+	}
+
 	// When a popup is open or just closed (mouse still held), block all
 	// non-owner widgets so clicks don't bleed through the overlay.
 	if mgr.popup_block {

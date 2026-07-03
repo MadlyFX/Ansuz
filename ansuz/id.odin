@@ -55,6 +55,15 @@ id_stack_pop :: proc(stack: ^ID_Stack) {
 	stack.count -= 1
 }
 
+id_stack_contains :: proc(stack: ^ID_Stack, id: Widget_ID) -> bool {
+	for i in 0..<stack.count {
+		if stack.items[i] == id {
+			return true
+		}
+	}
+	return false
+}
+
 id_from_string :: proc(stack: ^ID_Stack, label: string) -> Widget_ID {
 	return Widget_ID(hash_string(label, id_stack_top(stack)))
 }

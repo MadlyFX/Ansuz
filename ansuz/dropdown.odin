@@ -9,21 +9,31 @@ THEME_DROPDOWN_BG_HOVER  :: Color{70, 73, 83, 255}
 THEME_DROPDOWN_BG_OPEN   :: Color{50, 53, 58, 255}
 THEME_DROPDOWN_ITEM_HOVER :: Color{80, 140, 220, 255}
 THEME_DROPDOWN_ARROW      :: Color{180, 180, 185, 255}
+THEME_DROPDOWN_POPUP      :: Color{45, 48, 55, 245}
 
 dropdown :: proc(
 	mgr:      ^Manager,
 	selected: ^int,
 	options:  []string,
 	size:     [2]Size_Spec = FIXED_200_30,
-	loc       := #caller_location,
-	color := Widget_Color{
+	scale:    f32 = DEFAULT_FONT_SCALE,
+	font:     Font_Handle = FONT_DEFAULT,
+	color: Widget_Color = Widget_Color{
 		bg    = THEME_DROPDOWN_BG,
 		fg    = THEME_DROPDOWN_BG_HOVER,
 		hover = THEME_DROPDOWN_BG_HOVER,
 		press = THEME_DROPDOWN_BG_OPEN,
 	},
-	label_color := Label_Color{label = THEME_TEXT},
+	text_color: Color = THEME_TEXT,
+	indicator_color: Color = THEME_DROPDOWN_ARROW,
+	popup_color: Color = THEME_DROPDOWN_POPUP,
+	popup_border_color: Color = THEME_BORDER,
+	item_hover_color: Color = THEME_DROPDOWN_ITEM_HOVER,
+	selected_color: Color = THEME_SLIDER_FILL,
+	loc := #caller_location,
 ) -> Interaction {
+	effective_font := resolve_font(mgr, font)
+	item_height := max(28, get_line_height(mgr, effective_font, scale) + 8)
 	id := id_from_ptr_loc(&mgr.id_stack, selected, loc)
 
 	// Look up previous frame's rect
@@ -56,7 +66,7 @@ dropdown :: proc(
 			prev_rect.x,
 			prev_rect.y + prev_rect.h,
 			prev_rect.w,
-			f32(len(options)) * 28,
+			f32(len(options)) * item_height,
 		}
 		if !rect_contains(popup_rect, mgr.input.mouse_x, mgr.input.mouse_y) {
 			mgr.popup_owner = ID_NONE
@@ -95,9 +105,9 @@ dropdown :: proc(
 	append(&mgr.deferred_texts, Deferred_Text{
 		box_index = idx,
 		text      = display_text,
-		color     = label_color.label,
-		scale     = DEFAULT_FONT_SCALE,
-		font      = mgr.default_font,
+		color     = text_color,
+		scale     = scale,
+		font      = effective_font,
 		center_h  = false,
 		center_v  = true,
 	})
@@ -108,6 +118,7 @@ dropdown :: proc(
 		kind      = .Dropdown_Arrow,
 		dropdown  = Deferred_Dropdown_Data{
 			is_open = is_open,
+			color   = indicator_color,
 		},
 	})
 
@@ -121,9 +132,17 @@ dropdown :: proc(
 			owner_box_index = idx,
 			kind            = .Dropdown_List,
 			dropdown_list   = Popup_Dropdown_Data{
-				options       = options,
-				selected      = selected,
-				owner_id      = id,
+				options            = options,
+				selected           = selected,
+				owner_id           = id,
+				font               = effective_font,
+				scale              = scale,
+				item_height        = item_height,
+				text_color         = text_color,
+				popup_color        = popup_color,
+				popup_border_color = popup_border_color,
+				item_hover_color   = item_hover_color,
+				selected_color     = selected_color,
 			},
 		})
 	}

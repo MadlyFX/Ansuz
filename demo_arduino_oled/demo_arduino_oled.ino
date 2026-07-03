@@ -1,6 +1,3 @@
-
-
-
 #include <gfxfont.h>
 #include <Adafruit_SPITFT_Macros.h>
 #include <Adafruit_SPITFT.h>
@@ -8,69 +5,114 @@
 #include <Wire.h>
 #include <Adafruit_SSD1306.h>
 #include "ansuz_bridge.h"
+
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
-#define SCREEN_ADDR 0x3C  // Typical I2C address for SSD1306
-
-//#define PIN_OLED_SDA        2   // I2C Data for OLED
-//#define PIN_OLED_SCL        3   // I2C Clock for OLED
-//#define OLED_RESET        4   // OLED Reset Pin
+#define SCREEN_ADDR 0x3C
+#define ANSUZ_PIXEL_COUNT (SCREEN_WIDTH * SCREEN_HEIGHT)
 #define LED_PIN 13
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire);
 
+static uint32_t ansuzFramebuffer[ANSUZ_PIXEL_COUNT];
+ANSUZ_ALIGNAS(8) static uint8_t ansuzHeap[ANSUZ_RECOMMENDED_HEAP_SIZE];
+
+static float volume = 0.0f;
+static uint8_t wifiOn = 0;
+
+static void renderUi(float deltaSeconds) {
+  ansuz_frame_begin(deltaSeconds);
+
+  AnsuzFlexOptions root = ansuz_flex_options_default();
+  root.axis = ANSUZ_AXIS_VERTICAL;
+  root.gap = 2.0f;
+  root.padding = ansuz_edges(4, 4, 4, 4);
+  ansuz_flex_begin(ANSUZ_ID("root"), &root);
+
+  AnsuzLabelOptions title = ansuz_label_options_default();
+  title.scale = 2.0f;
+  title.font = ANSUZ_FONT_BUILTIN;
+  title.padding = ansuz_edges(0, 0, -2, 0);
+  ansuz_label(ANSUZ_ID("title"), ANSUZ_STR("Ansuz"), &title);
+
+  AnsuzBoxOptions divider = ansuz_box_options_default();
+  divider.size = ansuz_size(ansuz_size_grow(1), ansuz_size_fixed(1));
+  divider.bg_color = ansuz_rgba(255, 255, 255, 255);
+  ansuz_box(ANSUZ_ID("divider"), &divider);
+
+  AnsuzSliderLabeledOptions slider = ansuz_slider_labeled_options_default();
+  slider.lo = 0.0f;
+  slider.hi = 1024.0f;
+  slider.scale = 0.5f;
+  slider.font = ANSUZ_FONT_BUILTIN;
+  ansuz_slider_labeled_f32(
+      ANSUZ_ID("volume"),
+      ANSUZ_STR("A1:"),
+      &volume,
+      &slider);
+
+  AnsuzCheckboxOptions checkbox = ansuz_checkbox_options_default();
+  checkbox.scale = 0.5f;
+  checkbox.font = ANSUZ_FONT_BUILTIN;
+  ansuz_checkbox(
+      ANSUZ_ID("wifi"),
+      wifiOn ? ANSUZ_STR("True") : ANSUZ_STR("False"),
+      &wifiOn,
+      &checkbox);
+
+  ansuz_flex_end();
+  ansuz_frame_end();
+}
+
 void setup() {
-
-
-  //     Wire1.setSDA(PIN_OLED_SDA);
-  // Wire1.setSCL(PIN_OLED_SCL);
-  // Wire1.begin();
-
   pinMode(A1, INPUT_PULLDOWN);
+  pinMode(LED_PIN, OUTPUT);
 
   if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDR)) {
-    // SSD1306 init failed — halt
     while (1) {}
   }
 
   display.clearDisplay();
   display.display();
 
-  // Initialize the Odin-compiled ansuz framework
-  ansuz_init();
-}
-static unsigned long lastToggle = 0;
-static unsigned long lastMilis = 0;
+  AnsuzInitConfig config = {};
+  config.width = SCREEN_WIDTH;
+  config.height = SCREEN_HEIGHT;
+  config.framebuffer = ansuzFramebuffer;
+  config.framebuffer_length = ANSUZ_PIXEL_COUNT;
+  config.heap = ansuzHeap;
+  config.heap_size = sizeof(ansuzHeap);
+  config.clear_color = ansuz_rgba(0, 0, 0, 255);
 
+  if (!ansuz_init(&config)) {
+    while (1) {}
+  }
+}
+
+static unsigned long lastToggle = 0;
+static unsigned long lastFrameMillis = 0;
 
 void loop() {
-  // // Render the UI into the RGBA32 framebuffer (inside Odin code)
+  unsigned long now = millis();
+  float deltaSeconds =
+      lastFrameMillis == 0 ? 0.0f : (now - lastFrameMillis) / 1000.0f;
+  lastFrameMillis = now;
 
-  UI_State* ui = ansuz_get_state();
+  volume = analogRead(A1);
+  renderUi(deltaSeconds);
 
-  // Write sensor data → Odin UI displays it
-  ui->volume = analogRead(A1);
+  analogWrite(LED_PIN, wifiOn ? 255 : 0);
 
-  // Render the UI (Odin reads/writes state internally)
-  ansuz_render_frame();
-
-  // Read UI values → control hardware
-  analogWrite(LED_PIN, (int)(ui->brightness * 255));
-
-  // Get the RGBA framebuffer and convert to 1-bit monochrome
-  uint32_t* fb = ansuz_get_framebuffer();
-  uint8_t* disp_buf = display.getBuffer();
-
-  ansuz_framebuffer_to_ssd1306(fb, disp_buf);
-
-  // Push to the OLED
+  ansuz_framebuffer_to_mono_pages(
+      ansuz_get_framebuffer(),
+      display.getBuffer(),
+      SCREEN_WIDTH,
+      SCREEN_HEIGHT,
+      64);
   display.display();
 
-  if (millis() - lastToggle >= 500) {
-    ui->wifi_on = !ui->wifi_on;
-    lastToggle = millis();
+  if (now - lastToggle >= 500) {
+    wifiOn = !wifiOn;
+    lastToggle = now;
   }
-  ui->click_count = 1000 / (millis() - lastMilis);
-  lastMilis = millis();
-
 }

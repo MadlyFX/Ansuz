@@ -46,7 +46,6 @@ Ansuz is still in development, the syntax especially is still quite inconsistant
 - `demo/`: Desktop SDL demo
 - `demo_soft/`: Software renderer demo
 - `demo_web/`: WebAssembly/WebGL demo
-- `e2econfig/`, `e2econfig_web/`: End-to-end config UI examples
 
 ## Requirements
 
@@ -204,6 +203,4 @@ Core widget modules currently include:
 Additional supporting systems include animations/easing, transitions, interaction state, and reactive value plumbing.
 
 ## Notes
-
-- The project includes an `Odinlang examples/` folder with separate Odin learning/reference examples.
 - `SDL2.dll` may be present in the workspace, but the current desktop backend implementation imports SDL3 (`vendor:sdl3`).

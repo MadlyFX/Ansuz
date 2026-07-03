@@ -6,6 +6,7 @@ import "core:fmt"
 import "core:image"
 import "core:image/png"
 import "core:strings"
+import "core:time"
 
 img: ^image.Image
 img_err: image.Error
@@ -32,7 +33,10 @@ main :: proc() {
 	// Load OpenSans as the default font (antialiased TTF)
 	opensans_bold, bolt_font_ok := ansuz.load_font(&mgr, ansuz.OPENSANS_BOLD, 96)
 
-	img, img_err = image.load_from_file("logo.png")
+	img, img_err = image.load_from_file("demo/logo.png")
+	if img_err != nil {
+		img, img_err = image.load_from_file("logo.png")
+	}
 	if img_err != nil {
 		fmt.println("Failed to load image:", img_err)
 		return
@@ -57,6 +61,11 @@ main :: proc() {
 	check_b := false
 	selected_item := 0
 	options := [?]string{"Option A", "Option B", "Option C", "Option D"}
+	menu_selected := -1
+	last_menu_action := -1
+	menu_options := [?]string{"Show overlay", "Cool preview", "Warm preview", "Reset tint"}
+	overlay_open := false
+	overlay_t: f32 = 0
 	anim_val: f32 = 0
 	bounce_val: f32 = 50
 	header_anim_val: f32 = 50
@@ -69,9 +78,48 @@ main :: proc() {
 	defer delete(multi_buf)
 	append(&multi_buf, ..transmute([]u8)string("Line 1\nLine 2\nLine 3"))
 
-	for !ansuz.should_quit(&mgr) {
-		ansuz.frame_begin(&mgr)
+	last_frame_time := time.now()
 
+	for !ansuz.should_quit(&mgr) {
+		now := time.now()
+		dt := f32(time.duration_seconds(time.diff(last_frame_time, now)))
+		last_frame_time = now
+
+		ansuz.frame_begin(&mgr, dt)
+
+		modal_anim_id := ansuz.id_from_string(&mgr.id_stack, "desktop-modal-t")
+		modal_id := ansuz.id_from_string(&mgr.id_stack, "desktop-modal")
+
+		if menu_selected >= 0 {
+			last_menu_action = menu_selected
+			switch menu_selected {
+			case 0:
+				overlay_open = true
+				ansuz.animate_f32_id(&mgr, modal_anim_id, &overlay_t, 1, duration = 0.25, easing = .Cubic_Out)
+			case 1:
+				r_val = 0.20
+				g_val = 0.58
+				b_val = 1.0
+			case 2:
+				r_val = 1.0
+				g_val = 0.56
+				b_val = 0.30
+			case 3:
+				r_val = 0.47
+				g_val = 0.82
+				b_val = 1.0
+			}
+			menu_selected = -1
+		}
+
+		modal_visible := overlay_open || overlay_t > 0.01 || ansuz.is_animating_id(&mgr, modal_anim_id)
+		if modal_visible {
+			mgr.modal_owner = modal_id
+		} else {
+			mgr.modal_owner = ansuz.ID_NONE
+		}
+
+		ansuz.stack_begin(&mgr, size = {ansuz.SIZE_GROW, ansuz.SIZE_GROW})
 		ansuz.scroll_begin(
 			&mgr,
 			gap = 14,
@@ -174,8 +222,42 @@ main :: proc() {
 
 		ansuz.flex_begin(&mgr, axis = .Vertical, gap = 6, size = {ansuz.SIZE_FIT, ansuz.SIZE_FIT})
 		ansuz.label(&mgr, "Dropdown", font = opensans_bold)
-		ansuz.dropdown(&mgr, &selected_item, options[:], size = ansuz.FIXED_200_30)
+		ansuz.dropdown(
+			&mgr,
+			&selected_item,
+			options[:],
+			size = ansuz.FIXED_200_30,
+			font = opensans,
+			text_color = ansuz.COLOR_WHITE,
+			popup_color = ansuz.Color{34, 38, 46, 245},
+			item_hover_color = preview_color,
+			selected_color = ansuz.COLOR_CYAN,
+		)
 		ansuz.label(&mgr, fmt.tprintf("Selected: %s", options[selected_item]), font = opensans)
+		ansuz.flex_end(&mgr)
+
+		ansuz.flex_begin(&mgr, axis = .Vertical, gap = 6, size = {ansuz.SIZE_FIT, ansuz.SIZE_FIT})
+		ansuz.label(&mgr, "Menu Popup", font = opensans_bold)
+		ansuz.menu_button(
+			&mgr,
+			"Actions",
+			&menu_selected,
+			menu_options[:],
+			size = ansuz.FIXED_200_30,
+			font = opensans,
+			text_color = ansuz.COLOR_WHITE,
+			popup_color = ansuz.Color{32, 35, 42, 245},
+			item_hover_color = preview_color,
+		)
+		action_text := "None"
+		if last_menu_action >= 0 {
+			action_text = menu_options[last_menu_action]
+		}
+		ansuz.label(&mgr, fmt.tprintf("Last action: %s", action_text), font = opensans)
+		if .Clicked in ansuz.button(&mgr, "Show Floating Overlay", font = opensans) {
+			overlay_open = true
+			ansuz.animate_f32_id(&mgr, modal_anim_id, &overlay_t, 1, duration = 0.25, easing = .Cubic_Out)
+		}
 		ansuz.flex_end(&mgr)
 		ansuz.flex_end(&mgr)
 
@@ -327,6 +409,71 @@ main :: proc() {
 
 
 		ansuz.scroll_end(&mgr) // end outer scroll
+
+		if modal_visible {
+			ansuz.push_id(&mgr, "desktop-modal")
+			ansuz.stack_begin(&mgr, size = {ansuz.SIZE_GROW, ansuz.SIZE_GROW}, floating = true)
+			ansuz.box(
+				&mgr,
+				size = {ansuz.SIZE_GROW, ansuz.SIZE_GROW},
+				bg_color = ansuz.Color{0, 0, 0, u8(150 * overlay_t)},
+			)
+
+			screen_w := f32(mgr.backend.width)
+			screen_h := f32(mgr.backend.height)
+			modal_margin := f32(48) if screen_w >= 640 && screen_h >= 420 else f32(24)
+			panel_w := max(f32(300), min(f32(520), screen_w - modal_margin * 2))
+			panel_h := f32(220)
+			panel_x := max(modal_margin, (screen_w - panel_w) / 2)
+			panel_y := max(modal_margin, (screen_h - panel_h) / 2)
+
+			ansuz.flex_begin(
+				&mgr,
+				axis = .Vertical,
+				gap = 10,
+				size = {ansuz.size_fixed(panel_w), ansuz.size_fixed(panel_h)},
+				padding = {22, 26, 22, 26},
+				margin = {panel_y, 0, 0, panel_x},
+				bg_color = ansuz.Color{34, 37, 44, 250},
+			)
+			ansuz.flex_begin(&mgr, axis = .Horizontal, gap = 12, size = {ansuz.SIZE_GROW, ansuz.SIZE_FIT}, align = .Center)
+			ansuz.label(&mgr, "Floating Overlay", font = opensans_bold, color = ansuz.COLOR_WHITE, size = {ansuz.SIZE_GROW, ansuz.SIZE_FIT})
+			if .Clicked in ansuz.button(&mgr, "Close", font = opensans) {
+				overlay_open = false
+				ansuz.animate_f32_id(&mgr, modal_anim_id, &overlay_t, 0, duration = 0.20, easing = .Cubic_In)
+			}
+			ansuz.flex_end(&mgr)
+			ansuz.label(
+				&mgr,
+				"Stack layout + floating pass",
+				font = opensans,
+				color = ansuz.THEME_TEXT_DIM,
+				size = {ansuz.SIZE_GROW, ansuz.SIZE_FIT},
+				clip = true,
+			)
+			ansuz.label(
+				&mgr,
+				"Background input locked",
+				font = opensans,
+				color = ansuz.THEME_TEXT_DIM,
+				size = {ansuz.SIZE_GROW, ansuz.SIZE_FIT},
+				clip = true,
+			)
+			ansuz.box(&mgr, size = {ansuz.SIZE_GROW, ansuz.size_fixed(1)}, bg_color = ansuz.THEME_BORDER)
+			ansuz.label(
+				&mgr,
+				fmt.tprintf("Animation: %.2f", overlay_t),
+				font = opensans,
+				color = ansuz.COLOR_WHITE,
+				size = {ansuz.SIZE_GROW, ansuz.SIZE_FIT},
+				clip = true,
+			)
+			ansuz.flex_end(&mgr)
+			ansuz.stack_end(&mgr)
+			ansuz.pop_id(&mgr)
+		}
+
+		ansuz.stack_end(&mgr)
 		ansuz.frame_end(&mgr)
 	}
 }

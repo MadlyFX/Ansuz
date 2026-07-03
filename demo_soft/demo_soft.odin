@@ -7,6 +7,7 @@ package demo_soft
 // (SPI, I2C, parallel, etc.) instead of SDL.
 
 import "core:fmt"
+import "core:time"
 import SDL "vendor:sdl2"
 import ansuz "../ansuz"
 import soft "../backend_soft"
@@ -86,6 +87,11 @@ main :: proc() {
 	selected_item := 0
 	header_anim_val: f32 = 20
 	options := [?]string{"Option A", "Option B", "Option C", "Option D"}
+	menu_selected := -1
+	last_menu_action := -1
+	menu_options := [?]string{"Show overlay", "Cool tint", "Warm tint"}
+	overlay_open := false
+	overlay_t: f32 = 0
 	anim_val: f32 = 0
 	bounce_val: f32 = 50
 
@@ -97,8 +103,13 @@ main :: proc() {
 	defer delete(multi_buf)
 	append(&multi_buf, ..transmute([]u8)string("Line 1\nLine 2"))
 
+	last_frame_time := time.now()
 	running := true
 	for running {
+		now := time.now()
+		dt := f32(time.duration_seconds(time.diff(last_frame_time, now)))
+		last_frame_time = now
+
 		// Reset per-frame edge-triggered input events
 		mgr.input.mouse_left_pressed = false
 		mgr.input.text_char_len = 0
@@ -111,6 +122,9 @@ main :: proc() {
 		mgr.input.key_home = false
 		mgr.input.key_end = false
 		mgr.input.key_enter = false
+		mgr.input.key_copy = false
+		mgr.input.key_paste = false
+		mgr.input.key_cut = false
 		mgr.input.mouse_scroll_y = 0
 
 		// Poll SDL events (since software backend has no event polling)
@@ -180,8 +194,37 @@ main :: proc() {
 		}
 
 		// --- Render the UI into the framebuffer ---
-		ansuz.frame_begin(&mgr)
+		ansuz.frame_begin(&mgr, dt)
 
+		modal_anim_id := ansuz.id_from_string(&mgr.id_stack, "soft-modal-t")
+		modal_id := ansuz.id_from_string(&mgr.id_stack, "soft-modal")
+
+		if menu_selected >= 0 {
+			last_menu_action = menu_selected
+			switch menu_selected {
+			case 0:
+				overlay_open = true
+				ansuz.animate_f32_id(&mgr, modal_anim_id, &overlay_t, 1, duration = 0.25, easing = .Cubic_Out)
+			case 1:
+				r_val = 0.15
+				g_val = 0.45
+				b_val = 0.95
+			case 2:
+				r_val = 0.95
+				g_val = 0.55
+				b_val = 0.25
+			}
+			menu_selected = -1
+		}
+
+		modal_visible := overlay_open || overlay_t > 0.01 || ansuz.is_animating_id(&mgr, modal_anim_id)
+		if modal_visible {
+			mgr.modal_owner = modal_id
+		} else {
+			mgr.modal_owner = ansuz.ID_NONE
+		}
+
+		ansuz.stack_begin(&mgr, size = {ansuz.SIZE_GROW, ansuz.SIZE_GROW})
 		scroll_id := ansuz.scroll_begin(&mgr, gap = 14, size = {ansuz.SIZE_GROW, ansuz.SIZE_GROW}, padding = {20, 24, 20, 24})
 		preview_color := ansuz.Color{u8(r_val * 255), u8(g_val * 255), u8(b_val * 255), 255}//Controlled by sliders below
 		ansuz.heading(&mgr, "Ansuz Demo", font = ansuz.FONT_BUILTIN, scale=2, padding={0, 0, 0, header_anim_val}, color = preview_color)
@@ -231,6 +274,30 @@ main :: proc() {
 		ansuz.flex_end(&mgr)
 
 		ansuz.flex_end(&mgr)
+
+		// --- Menu popup + floating overlay ---
+		ansuz.label(&mgr, "Menu Popup", color = ansuz.COLOR_WHITE, font=ansuz.FONT_BUILTIN)
+		ansuz.menu_button(
+			&mgr,
+			"Actions",
+			&menu_selected,
+			menu_options[:],
+			size = ansuz.FIXED_200_30,
+			scale = 0.5,
+			font = ansuz.FONT_BUILTIN,
+			text_color = ansuz.COLOR_WHITE,
+			popup_color = ansuz.Color{32, 35, 42, 245},
+			item_hover_color = preview_color,
+		)
+		action_text := "None"
+		if last_menu_action >= 0 {
+			action_text = menu_options[last_menu_action]
+		}
+		ansuz.label(&mgr, fmt.tprintf("Action: %s", action_text), color = ansuz.THEME_TEXT_DIM, font=ansuz.FONT_BUILTIN)
+		if .Clicked in ansuz.button(&mgr, "Overlay", font=ansuz.FONT_BUILTIN) {
+			overlay_open = true
+			ansuz.animate_f32_id(&mgr, modal_anim_id, &overlay_t, 1, duration = 0.25, easing = .Cubic_Out)
+		}
 
 		// --- Text Input ---
 		ansuz.label(&mgr, "Text Input", color = ansuz.COLOR_WHITE, font=ansuz.FONT_BUILTIN)
@@ -296,6 +363,45 @@ main :: proc() {
 
 		ansuz.scroll_end(&mgr) // end outer scroll
 
+		if modal_visible {
+			ansuz.push_id(&mgr, "soft-modal")
+			ansuz.stack_begin(&mgr, size = {ansuz.SIZE_GROW, ansuz.SIZE_GROW}, floating = true)
+			ansuz.box(
+				&mgr,
+				size = {ansuz.SIZE_GROW, ansuz.SIZE_GROW},
+				bg_color = ansuz.Color{0, 0, 0, u8(145 * overlay_t)},
+			)
+
+			soft_margin := f32(16)
+			panel_w := f32(260)
+			panel_h := f32(118)
+			panel_x := max(soft_margin, (f32(mgr.backend.width) - panel_w) / 2)
+			panel_y := max(soft_margin, (f32(mgr.backend.height) - panel_h) / 2)
+
+			ansuz.flex_begin(
+				&mgr,
+				axis = .Vertical,
+				gap = 6,
+				size = {ansuz.size_fixed(panel_w), ansuz.size_fixed(panel_h)},
+				padding = {12, 14, 12, 14},
+				margin = {panel_y, 0, 0, panel_x},
+				bg_color = ansuz.Color{34, 37, 44, 250},
+			)
+			ansuz.flex_begin(&mgr, axis = .Horizontal, gap = 6, size = {ansuz.SIZE_GROW, ansuz.SIZE_FIT}, align = .Center)
+			ansuz.label(&mgr, "Floating Overlay", color = ansuz.COLOR_WHITE, font=ansuz.FONT_BUILTIN, size = {ansuz.SIZE_GROW, ansuz.SIZE_FIT})
+			if .Clicked in ansuz.button(&mgr, "Close", font=ansuz.FONT_BUILTIN) {
+				overlay_open = false
+				ansuz.animate_f32_id(&mgr, modal_anim_id, &overlay_t, 0, duration = 0.20, easing = .Cubic_In)
+			}
+			ansuz.flex_end(&mgr)
+			ansuz.label(&mgr, "Input locked below", color = ansuz.THEME_TEXT_DIM, font=ansuz.FONT_BUILTIN, scale = 0.5)
+			ansuz.label(&mgr, fmt.tprintf("t %.2f", overlay_t), color = ansuz.THEME_TEXT_DIM, font=ansuz.FONT_BUILTIN, scale = 0.5)
+			ansuz.flex_end(&mgr)
+			ansuz.stack_end(&mgr)
+			ansuz.pop_id(&mgr)
+		}
+
+		ansuz.stack_end(&mgr)
 		ansuz.frame_end(&mgr)
 
 		// --- Copy framebuffer to SDL texture and display ---

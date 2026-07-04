@@ -1,10 +1,9 @@
-//+build !freestanding
+#+build !freestanding
 package ansuz
 
 // --- TrueType Font Loading ---
-// Rasterizes TTF font data into a grayscale atlas using stb_truetype.
-// The atlas and per-glyph metrics are stored in a Font struct for use
-// by any backend (SDL, WebGL, software).
+// Rasterizes TTF font data into a grayscale coverage atlas using stb_truetype.
+// SDL and WebGL upload this alpha atlas to GPU textures for antialiased text.
 
 import stbtt "vendor:stb/truetype"
 
@@ -18,10 +17,12 @@ load_font_from_data :: proc(ttf_data: []u8, pixel_size: f32, extra_codepoints: [
 	font.kind = .Atlas
 	font.pixel_size = pixel_size
 	font.scale_norm = f32(FONT_GLYPH_HEIGHT) / pixel_size
+	font.antialiasing = .Grayscale
+	font.oversample_x = u8(FONT_TTF_OVERSAMPLE_X)
+	font.oversample_y = u8(FONT_TTF_OVERSAMPLE_Y)
 
-	// Taller atlas when extra codepoints are requested
-	atlas_w := i32(1024)
-	atlas_h := i32(1024) if len(extra_codepoints) > 0 else i32(512)
+	// Oversampled fonts need more atlas space than 1x packed bitmaps.
+	atlas_w, atlas_h := ttf_atlas_size(pixel_size, len(extra_codepoints))
 	font.atlas_width = atlas_w
 	font.atlas_height = atlas_h
 	font.atlas_pixels = make([]u8, int(atlas_w * atlas_h))
@@ -63,10 +64,11 @@ load_font_from_data :: proc(ttf_data: []u8, pixel_size: f32, extra_codepoints: [
 	}
 
 	spc: stbtt.pack_context
-	if stbtt.PackBegin(&spc, raw_data(font.atlas_pixels), atlas_w, atlas_h, 0, 1, nil) == 0 {
+	if stbtt.PackBegin(&spc, raw_data(font.atlas_pixels), atlas_w, atlas_h, 0, FONT_TTF_ATLAS_PADDING, nil) == 0 {
 		delete(font.atlas_pixels)
 		return {}, false
 	}
+	stbtt.PackSetOversampling(&spc, FONT_TTF_OVERSAMPLE_X, FONT_TTF_OVERSAMPLE_Y)
 
 	pack_result := stbtt.PackFontRanges(&spc, raw_data(ttf_data), 0, raw_data(ranges[:]), i32(len(ranges)))
 	stbtt.PackEnd(&spc)
@@ -87,6 +89,8 @@ load_font_from_data :: proc(ttf_data: []u8, pixel_size: f32, extra_codepoints: [
 			atlas_h  = ch.y1 - ch.y0,
 			x_offset = ch.xoff,
 			y_offset = ch.yoff,
+			x_offset2 = ch.xoff2,
+			y_offset2 = ch.yoff2,
 			advance  = ch.xadvance,
 		}
 	}
@@ -102,6 +106,8 @@ load_font_from_data :: proc(ttf_data: []u8, pixel_size: f32, extra_codepoints: [
 			atlas_h  = ch.y1 - ch.y0,
 			x_offset = ch.xoff,
 			y_offset = ch.yoff,
+			x_offset2 = ch.xoff2,
+			y_offset2 = ch.yoff2,
 			advance  = ch.xadvance,
 		}
 	}
@@ -118,6 +124,8 @@ load_font_from_data :: proc(ttf_data: []u8, pixel_size: f32, extra_codepoints: [
 				atlas_h  = ch.y1 - ch.y0,
 				x_offset = ch.xoff,
 				y_offset = ch.yoff,
+				x_offset2 = ch.xoff2,
+				y_offset2 = ch.yoff2,
 				advance  = ch.xadvance,
 			}
 		}
@@ -139,4 +147,14 @@ load_font_from_data :: proc(ttf_data: []u8, pixel_size: f32, extra_codepoints: [
 	font.line_height = f32(ascent - descent + line_gap) * fscale
 
 	return font, true
+}
+
+ttf_atlas_size :: proc(pixel_size: f32, extra_count: int) -> (i32, i32) {
+	if pixel_size >= 64 {
+		return 2048, 2048
+	}
+	if extra_count > 0 {
+		return 1024, 2048
+	}
+	return 1024, 1024
 }

@@ -11,6 +11,15 @@ Font_Kind :: enum {
 	Atlas,     // Pre-rasterized TrueType font atlas
 }
 
+Font_Antialiasing :: enum {
+	None,
+	Grayscale,
+}
+
+FONT_TTF_OVERSAMPLE_X :: 2
+FONT_TTF_OVERSAMPLE_Y :: 2
+FONT_TTF_ATLAS_PADDING :: 2
+
 Font_Glyph_Info :: struct {
 	atlas_x:  u16,    // X position in atlas texture
 	atlas_y:  u16,    // Y position in atlas texture
@@ -18,6 +27,8 @@ Font_Glyph_Info :: struct {
 	atlas_h:  u16,    // Height in atlas texture
 	x_offset: f32,    // Horizontal offset when rendering
 	y_offset: f32,    // Vertical offset from baseline
+	x_offset2: f32,   // Horizontal end offset when rendering
+	y_offset2: f32,   // Vertical end offset from baseline
 	advance:  f32,    // Horizontal advance to next character
 }
 
@@ -26,12 +37,15 @@ Font :: struct {
 	pixel_size:    f32,           // Size the font was rasterized at
 	atlas_width:   i32,
 	atlas_height:  i32,
-	atlas_pixels:  []u8,          // Grayscale alpha values (for GPU upload)
+	atlas_pixels:  []u8,          // Grayscale alpha coverage values (for GPU upload)
 	glyphs:        [256]Font_Glyph_Info,
 	glyphs_unicode: map[rune]Font_Glyph_Info, // Overflow for codepoints > 255
 	line_height:   f32,           // Line height at native pixel_size
 	ascent:        f32,           // Ascent at native pixel_size
 	scale_norm:    f32,           // Normalization: FONT_GLYPH_HEIGHT / pixel_size
+	antialiasing:  Font_Antialiasing,
+	oversample_x:  u8,
+	oversample_y:  u8,
 }
 
 // Common Unicode codepoints to bake when loading a TTF font.

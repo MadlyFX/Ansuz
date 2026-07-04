@@ -8,7 +8,7 @@ import ansuz "../ansuz"
 
 // --- SDL3 Backend Data ---
 
-// Per-font GPU data for loaded TTF fonts.
+// Per-font GPU data for antialiased TTF fonts.
 SDL_Font :: struct {
 	texture:        ^SDL.Texture,
 	glyphs:         [256]ansuz.Font_Glyph_Info,
@@ -122,18 +122,18 @@ sdl_init :: proc(backend: ^ansuz.Backend, width, height: i32) -> bool {
 	return true
 }
 
-// Upload a TTF font atlas as an SDL texture for rendering.
+// Upload a TTF grayscale coverage atlas as an SDL texture for antialiased rendering.
 sdl_load_font :: proc(backend: ^ansuz.Backend, font: ^ansuz.Font, handle: ansuz.Font_Handle) {
 	data := cast(^SDL_Data)backend.user_data
 
 	w := font.atlas_width
 	h := font.atlas_height
 
-	// Create RGBA texture from grayscale atlas (white pixels + alpha from atlas)
+	// Create RGBA texture from grayscale coverage atlas (white pixels + alpha from atlas).
 	tex := SDL.CreateTexture(data.renderer, .RGBA32, .STATIC, w, h)
 	if tex == nil { return }
 	SDL.SetTextureBlendMode(tex, SDL.BLENDMODE_BLEND)
-	SDL.SetTextureScaleMode(tex, .LINEAR)  // Smooth filtering for antialiased TTF
+	SDL.SetTextureScaleMode(tex, .LINEAR)
 
 	// Convert grayscale to RGBA
 	pixel_count := int(w * h)
@@ -416,8 +416,8 @@ sdl_execute :: proc(backend: ^ansuz.Backend, cmd: ansuz.Draw_Command) {
 				dst := SDL.FRect{
 					cursor_x + g.x_offset * scale,
 					cursor_y + (font.ascent + g.y_offset) * scale,
-					f32(g.atlas_w) * scale,
-					f32(g.atlas_h) * scale,
+					(g.x_offset2 - g.x_offset) * scale,
+					(g.y_offset2 - g.y_offset) * scale,
 				}
 				SDL.RenderTexture(data.renderer, font.texture, &src, &dst)
 

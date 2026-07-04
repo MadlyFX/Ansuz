@@ -452,19 +452,22 @@ box_is_floating :: proc(mgr: ^Manager, idx: int) -> bool {
 // --- Font Management ---
 
 // Load a TrueType font from raw TTF file data, rasterize it at the given pixel size,
-// and upload it to the backend. Returns a Font_Handle for use with set_default_font.
+// and upload it to the backend. Backends without a font upload hook stay bitmap-only.
+// Returns a Font_Handle for use with set_default_font.
 when ODIN_OS != .Freestanding {
 	load_font :: proc(mgr: ^Manager, ttf_data: []u8, pixel_size: f32, extra_codepoints: []rune = nil) -> (Font_Handle, bool) {
+		if mgr.backend == nil || mgr.backend.load_font == nil {
+			return FONT_BUILTIN, false
+		}
+
 		font, ok := load_font_from_data(ttf_data, pixel_size, extra_codepoints)
 		if !ok { return FONT_BUILTIN, false }
 
 		handle := Font_Handle(len(mgr.fonts) + 1)
 		append(&mgr.fonts, font)
 
-		// Notify the backend so it can create a GPU texture from the atlas
-		if mgr.backend.load_font != nil {
-			mgr.backend.load_font(mgr.backend, &mgr.fonts[len(mgr.fonts) - 1], handle)
-		}
+		// Notify the backend so it can create a GPU texture from the alpha atlas.
+		mgr.backend.load_font(mgr.backend, &mgr.fonts[len(mgr.fonts) - 1], handle)
 
 		return handle, true
 	}

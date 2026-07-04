@@ -21,7 +21,7 @@ WebGL_Image :: struct {
 	texture: gl.Texture,
 }
 
-// Per-font GPU data for loaded TTF fonts.
+// Per-font GPU data for antialiased TTF fonts.
 WebGL_Font :: struct {
 	texture:        gl.Texture,
 	glyphs:         [256]ansuz.Font_Glyph_Info,
@@ -414,14 +414,14 @@ create_font_texture :: proc(data: ^WebGL_Data) {
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, i32(gl.CLAMP_TO_EDGE))
 }
 
-// Upload a TTF font atlas as a WebGL texture for rendering.
+// Upload a TTF grayscale coverage atlas as a WebGL texture for antialiased rendering.
 webgl_load_font :: proc(backend: ^ansuz.Backend, font: ^ansuz.Font, handle: ansuz.Font_Handle) {
 	data := cast(^WebGL_Data)backend.user_data
 
 	w := font.atlas_width
 	h := font.atlas_height
 
-	// Convert grayscale atlas to RGBA (white + alpha)
+	// Convert grayscale coverage atlas to RGBA (white + alpha).
 	pixel_count := int(w * h)
 	rgba := make([]u8, pixel_count * 4)
 	defer delete(rgba)
@@ -543,8 +543,8 @@ draw_text_ttf_webgl :: proc(data: ^WebGL_Data, pos: ansuz.Vec2, text: string, co
 		// Destination quad with baseline offset
 		dx0 := cursor_x + g.x_offset * scale
 		dy0 := cursor_y + (font.ascent + g.y_offset) * scale
-		dx1 := dx0 + f32(g.atlas_w) * scale
-		dy1 := dy0 + f32(g.atlas_h) * scale
+		dx1 := cursor_x + g.x_offset2 * scale
+		dy1 := cursor_y + (font.ascent + g.y_offset2) * scale
 
 		if data.vertex_count + 6 > MAX_VERTICES {
 			flush_batch(data, data.current_program)

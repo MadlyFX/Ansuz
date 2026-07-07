@@ -403,6 +403,7 @@ main :: proc() {
 
 		ansuz.stack_end(&mgr)
 		ansuz.frame_end(&mgr)
+		free_all(context.temp_allocator)
 
 		// --- Copy framebuffer to SDL texture and display ---
 		SDL.UpdateTexture(texture, nil, raw_data(framebuffer[:]), DISPLAY_W * 4)

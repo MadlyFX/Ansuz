@@ -6,8 +6,6 @@ It offers an immediate-mode authoring style with a retained internal state manag
 
 ![Demo image](demo.png)
 
-## AI Disclosure
-AI was used to assist in development of Ansuz, mostly for refactoring/cleanup and some more esoteric system call stuff.
 
 ## Status
 Ansuz is still in development, the syntax especially is still quite inconsistant. PRs welcome.
@@ -29,6 +27,7 @@ Ansuz is still in development, the syntax especially is still quite inconsistant
   - Dropdown
   - Text input (single-line and multi-line)
   - Image widget
+  - Collapsible header
 - Popup rendering for dropdowns and menu lists
 - Animation support with easing functions and optional host-provided delta time
 - Font support:
@@ -100,6 +99,7 @@ main :: proc() {
         ansuz.flex_end(&mgr)
 
         ansuz.frame_end(&mgr)
+        free_all(context.temp_allocator)
     }
 }
 ```
@@ -113,6 +113,10 @@ From the repository root:
 ```powershell
 odin run demo
 ```
+
+On Windows, make sure `SDL3.dll` is discoverable by the executable. When running
+from the repository root, either keep `SDL3.dll` in the root directory or have it
+on `PATH`.
 
 ### 2. Software Renderer Demo
 
@@ -165,12 +169,37 @@ Typical usage follows this order each frame:
 1. `frame_begin`
 2. Build layout and widgets (`flex_begin`/`flex_end`, `grid_begin`/`grid_end`, widget calls)
 3. `frame_end`
+4. `free_all(context.temp_allocator)` if the frame used Odin temporary allocations
 
 Internally, ansuz resolves layout, emits draw commands, handles deferred text/custom draws, executes backend rendering, and updates persistent widget state.
 
 `frame_begin` also accepts an optional `dt` value. Pass `frame_begin(&mgr, dt)`
 when the host application owns timing, or omit `dt` to use the default animation
 tick path.
+
+## Temporary Allocations
+
+Ansuz resets its internal frame arena at `frame_begin`, but it does not reset the
+host application's `context.temp_allocator`. If your frame code builds labels,
+menus, option arrays, formatted strings, or other short-lived values with
+`context.temp_allocator` or helpers such as `fmt.tprintf`, reset that allocator
+after `frame_end`:
+
+```odin
+for !ansuz.should_quit(&mgr) {
+    ansuz.frame_begin(&mgr, dt)
+
+    // Build UI here. Values allocated from context.temp_allocator only need to
+    // live until frame_end has rendered the frame.
+
+    ansuz.frame_end(&mgr)
+    free_all(context.temp_allocator)
+}
+```
+
+Do not store pointers, slices, or strings allocated from `context.temp_allocator`
+in persistent app state. Clone those values with the regular allocator first, or
+store them in your own explicitly managed allocation.
 
 ## Layout, Floating UI, and Popups
 

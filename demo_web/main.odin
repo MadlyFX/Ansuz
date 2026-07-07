@@ -543,6 +543,7 @@ step :: proc(dt: f32) -> bool {
 
 		ansuz.stack_end(&mgr)
 		ansuz.frame_end(&mgr)
+		free_all(context.temp_allocator)
 
 	return true
 }

@@ -475,5 +475,6 @@ main :: proc() {
 
 		ansuz.stack_end(&mgr)
 		ansuz.frame_end(&mgr)
+		free_all(context.temp_allocator)
 	}
 }

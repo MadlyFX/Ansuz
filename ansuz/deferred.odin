@@ -8,6 +8,7 @@ Deferred_Draw_Kind :: enum {
 	Slider,
 	Checkmark,
 	Dropdown_Arrow,
+	Disclosure_Icon,
 	Image,
 	Text_Cursor,
 	Scrollbar,
@@ -25,6 +26,11 @@ Deferred_Checkmark_Data :: struct {
 Deferred_Dropdown_Data :: struct {
 	is_open: bool,
 	color:   Color,
+}
+
+Deferred_Disclosure_Data :: struct {
+	expanded: bool,
+	color:    Color,
 }
 
 Deferred_Image_Data :: struct {
@@ -55,6 +61,7 @@ Deferred_Draw :: struct {
 	slider:      Deferred_Slider_Data,
 	checkmark:   Deferred_Checkmark_Data,
 	dropdown:    Deferred_Dropdown_Data,
+	disclosure:  Deferred_Disclosure_Data,
 	image:       Deferred_Image_Data,
 	text_cursor: Deferred_Text_Cursor_Data,
 	scrollbar:   Deferred_Scrollbar_Data,
@@ -136,6 +143,9 @@ emit_deferred_draws :: proc(mgr: ^Manager, floating: bool = false) {
 		case .Dropdown_Arrow:
 			emit_dropdown_arrow(mgr, r, dd.dropdown)
 
+		case .Disclosure_Icon:
+			emit_disclosure_icon(mgr, r, dd.disclosure, s)
+
 		case .Image:
 			emit_image_draw(mgr, r, dd.image)
 
@@ -149,6 +159,27 @@ emit_deferred_draws :: proc(mgr: ^Manager, floating: bool = false) {
 	}
 	if needs_clip_reset {
 		push_clip(&mgr.draw_list, full_screen)
+	}
+}
+
+emit_disclosure_icon :: proc(mgr: ^Manager, rect: Rect, data: Deferred_Disclosure_Data, scale: f32 = 1.0) {
+	cx := rect.x + rect.w * 0.5
+	cy := rect.y + rect.h * 0.5
+	s := min(rect.w, rect.h) * 0.28
+	thickness := max(1, 2 * scale)
+
+	if data.expanded {
+		p1 := Vec2{cx - s, cy - s * 0.45}
+		p2 := Vec2{cx,     cy + s * 0.45}
+		p3 := Vec2{cx + s, cy - s * 0.45}
+		push_line(&mgr.draw_list, p1, p2, data.color, thickness)
+		push_line(&mgr.draw_list, p2, p3, data.color, thickness)
+	} else {
+		p1 := Vec2{cx - s * 0.4, cy - s}
+		p2 := Vec2{cx + s * 0.45, cy}
+		p3 := Vec2{cx - s * 0.4, cy + s}
+		push_line(&mgr.draw_list, p1, p2, data.color, thickness)
+		push_line(&mgr.draw_list, p2, p3, data.color, thickness)
 	}
 }
 

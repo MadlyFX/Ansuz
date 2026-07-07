@@ -16,8 +16,8 @@ Font_Antialiasing :: enum {
 	Grayscale,
 }
 
-FONT_TTF_OVERSAMPLE_X :: 2
-FONT_TTF_OVERSAMPLE_Y :: 2
+FONT_TTF_OVERSAMPLE_X :: 1
+FONT_TTF_OVERSAMPLE_Y :: 1
 FONT_TTF_ATLAS_PADDING :: 2
 
 Font_Glyph_Info :: struct {

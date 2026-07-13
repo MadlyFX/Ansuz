@@ -28,7 +28,7 @@ Ansuz is still in development, the syntax especially is still quite inconsistant
   - Text input (single-line and multi-line)
   - Image widget
   - Collapsible header
-- Popup rendering for dropdowns and menu lists
+- Popup rendering for dropdowns and menu lists with scroll support
 - Animation support with easing functions and optional host-provided delta time
 - Font support:
   - Built-in bitmap font

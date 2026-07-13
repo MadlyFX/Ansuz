@@ -4,7 +4,7 @@ Ansuz is a cross-platform UI framework written in Odin.
 
 It offers an immediate-mode authoring style with a retained internal state manager, so you can write straightforward per-frame UI code while the framework tracks widget state, interaction, and transitions across frames.
 
-![Demo image](demo.png)
+![Demo image](demo.png?v=2)
 
 
 ## Status

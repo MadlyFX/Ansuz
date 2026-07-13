@@ -220,7 +220,7 @@ stack_solve :: proc(mgr: ^Manager, box_idx: int) {
 apply_scroll_offsets :: proc(mgr: ^Manager, box_idx: int) {
 	// At root level, apply mouse wheel input to the deepest hovered scroll container.
 	// This ensures only one scroll processes the event (innermost wins).
-	if box_idx == 0 && mgr.scroll_wheel_candidate != ID_NONE && mgr.input.mouse_scroll_y != 0 {
+	if box_idx == 0 && !mgr.popup_consumed_scroll && mgr.scroll_wheel_candidate != ID_NONE && mgr.input.mouse_scroll_y != 0 {
 		if ss, ok := &mgr.scroll_states[mgr.scroll_wheel_candidate]; ok {
 			ss.offset_y -= mgr.input.mouse_scroll_y * SCROLL_SPEED
 			max_scroll := max(0, ss.content_h - ss.viewport_h)

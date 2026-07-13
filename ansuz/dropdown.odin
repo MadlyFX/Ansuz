@@ -11,6 +11,10 @@ THEME_DROPDOWN_ITEM_HOVER :: Color{80, 140, 220, 255}
 THEME_DROPDOWN_ARROW      :: Color{180, 180, 185, 255}
 THEME_DROPDOWN_POPUP      :: Color{45, 48, 55, 245}
 
+// A zero value leaves popup height uncapped. Use this for long option lists
+// that should scroll instead of extending beyond the screen.
+DROPDOWN_SCROLLBAR_WIDTH :: f32(6)
+
 dropdown :: proc(
 	mgr:      ^Manager,
 	selected: ^int,
@@ -30,6 +34,7 @@ dropdown :: proc(
 	popup_border_color: Color = THEME_BORDER,
 	item_hover_color: Color = THEME_DROPDOWN_ITEM_HOVER,
 	selected_color: Color = THEME_SLIDER_FILL,
+	max_popup_height: f32 = 0,
 	loc := #caller_location,
 ) -> Interaction {
 	effective_font := resolve_font(mgr, font)
@@ -55,19 +60,27 @@ dropdown :: proc(
 			is_open = false
 		} else {
 			mgr.popup_owner = id
+			mgr.dropdown_scroll_offsets[id] = 0
 			is_open = true
+		}
+	}
+	if id not_in mgr.dropdown_scroll_offsets {
+		mgr.dropdown_scroll_offsets[id] = 0
+	}
+
+	popup_rect := dropdown_popup_rect(mgr, prev_rect, len(options), item_height, max_popup_height)
+	content_h := f32(len(options)) * item_height
+	if is_open && content_h > popup_rect.h && rect_contains(popup_rect, mgr.input.mouse_x, mgr.input.mouse_y) && mgr.input.mouse_scroll_y != 0 {
+		if offset, ok := &mgr.dropdown_scroll_offsets[id]; ok {
+			offset^ -= mgr.input.mouse_scroll_y * SCROLL_SPEED
+			offset^ = clamp(offset^, 0, max(0, content_h - popup_rect.h))
+			mgr.popup_consumed_scroll = true
 		}
 	}
 
 	// Close on click outside (if open and something else got clicked)
 	if is_open && mgr.input.mouse_left && !rect_contains(prev_rect, mgr.input.mouse_x, mgr.input.mouse_y) {
 		// Check if click is inside the popup area
-		popup_rect := Rect{
-			prev_rect.x,
-			prev_rect.y + prev_rect.h,
-			prev_rect.w,
-			f32(len(options)) * item_height,
-		}
 		if !rect_contains(popup_rect, mgr.input.mouse_x, mgr.input.mouse_y) {
 			mgr.popup_owner = ID_NONE
 			mgr.popup_block = true  // block widgets until mouse released
@@ -143,9 +156,30 @@ dropdown :: proc(
 				popup_border_color = popup_border_color,
 				item_hover_color   = item_hover_color,
 				selected_color     = selected_color,
+				max_popup_height   = max_popup_height,
 			},
 		})
 	}
 
 	return interaction
+}
+
+dropdown_popup_rect :: proc(mgr: ^Manager, anchor: Rect, option_count: int, item_height, max_popup_height: f32) -> Rect {
+	content_h := f32(option_count) * item_height
+	popup_h := content_h
+	if max_popup_height > 0 {
+		popup_h = min(popup_h, max_popup_height)
+	}
+
+	below_y := anchor.y + anchor.h
+	space_below := max(f32(0), f32(mgr.backend.height) - below_y)
+	space_above := max(f32(0), anchor.y)
+	y := below_y
+	if popup_h > space_below && space_above > space_below {
+		popup_h = min(popup_h, space_above)
+		y = anchor.y - popup_h
+	} else {
+		popup_h = min(popup_h, space_below)
+	}
+	return Rect{anchor.x, y, anchor.w, popup_h}
 }

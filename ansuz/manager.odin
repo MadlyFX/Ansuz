@@ -94,6 +94,10 @@ Manager :: struct {
 
 	// Per-widget scroll state (scroll position, content/viewport sizes)
 	scroll_states:    map[Widget_ID]Scroll_State,
+	// Per-dropdown popup scroll offset. Kept separately from scrollbox state because
+	// dropdown lists are rendered as overlays rather than layout boxes.
+	dropdown_scroll_offsets: map[Widget_ID]f32,
+	popup_consumed_scroll:   bool,
 
 	// Tracks deepest scroll container under mouse cursor for wheel routing
 	scroll_wheel_candidate: Widget_ID,
@@ -134,6 +138,7 @@ init :: proc(mgr: ^Manager, backend: ^Backend) {
 	mgr.popup_draws    = make([dynamic]Popup_Draw, 0, 4)
 	mgr.text_states    = make(map[Widget_ID]Text_Input_State, 16)
 	mgr.scroll_states  = make(map[Widget_ID]Scroll_State, 8)
+	mgr.dropdown_scroll_offsets = make(map[Widget_ID]f32, 8)
 	mgr.fonts          = make([dynamic]Font, 0, 4)
 	anim_pool_init(&mgr.anim_pool)
 
@@ -154,6 +159,7 @@ shutdown :: proc(mgr: ^Manager) {
 	delete(mgr.popup_draws)
 	delete(mgr.text_states)
 	delete(mgr.scroll_states)
+	delete(mgr.dropdown_scroll_offsets)
 	for &f in mgr.fonts {
 		if f.atlas_pixels != nil {
 			delete(f.atlas_pixels)
@@ -179,6 +185,7 @@ frame_begin :: proc(mgr: ^Manager, dt: f32 = -1) {
 	mgr.seq_counter = 0
 	mgr.hot_id = ID_NONE
 	mgr.scroll_wheel_candidate = ID_NONE
+	mgr.popup_consumed_scroll = false
 
 	mgr.frame_id += 1
 

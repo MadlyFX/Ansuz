@@ -88,6 +88,7 @@ Popup_Dropdown_Data :: struct {
 	popup_border_color: Color,
 	item_hover_color:   Color,
 	selected_color:     Color,
+	max_popup_height:   f32,
 }
 
 Popup_Menu_Data :: struct {
@@ -280,16 +281,25 @@ emit_popup_draws :: proc(mgr: ^Manager) {
 
 emit_dropdown_list :: proc(mgr: ^Manager, anchor: Rect, data: Popup_Dropdown_Data) {
 	item_h := data.item_height
-	list_h := f32(len(data.options)) * item_h
-	list_rect := Rect{anchor.x, anchor.y + anchor.h, anchor.w, list_h}
+	content_h := f32(len(data.options)) * item_h
+	list_rect := dropdown_popup_rect(mgr, anchor, len(data.options), item_h, data.max_popup_height)
+	list_h := list_rect.h
+	scroll_offset := f32(0)
+	if offset, ok := &mgr.dropdown_scroll_offsets[data.owner_id]; ok {
+		offset^ = clamp(offset^, 0, max(0, content_h - list_h))
+		scroll_offset = offset^
+	}
 
 	// Background
 	push_filled_rect(&mgr.draw_list, list_rect, data.popup_color, 0)
 	push_rect_outline(&mgr.draw_list, list_rect, data.popup_border_color, 1, 0)
 
+	full_screen := Rect{0, 0, f32(mgr.backend.width), f32(mgr.backend.height)}
+	push_clip(&mgr.draw_list, list_rect)
+
 	// Items
 	for opt, i in data.options {
-		item_y := list_rect.y + f32(i) * item_h
+		item_y := list_rect.y + f32(i) * item_h - scroll_offset
 		item_rect := Rect{list_rect.x, item_y, list_rect.w, item_h}
 
 		mouse_over := rect_contains(item_rect, mgr.input.mouse_x, mgr.input.mouse_y)
@@ -317,6 +327,19 @@ emit_dropdown_list :: proc(mgr: ^Manager, anchor: Rect, data: Popup_Dropdown_Dat
 			mgr.popup_owner = ID_NONE
 			mgr.popup_block = true  // block widgets until mouse released
 		}
+	}
+	push_clip(&mgr.draw_list, full_screen)
+
+	if content_h > list_h && list_h > 0 {
+		track := Rect{list_rect.x + list_rect.w - DROPDOWN_SCROLLBAR_WIDTH, list_rect.y, DROPDOWN_SCROLLBAR_WIDTH, list_h}
+		thumb_h := max(f32(20), list_h * list_h / content_h)
+		max_offset := content_h - list_h
+		thumb_y := track.y
+		if max_offset > 0 {
+			thumb_y += (scroll_offset / max_offset) * (track.h - thumb_h)
+		}
+		push_filled_rect(&mgr.draw_list, track, Color{0, 0, 0, 75}, 0)
+		push_filled_rect(&mgr.draw_list, Rect{track.x, thumb_y, track.w, thumb_h}, THEME_DROPDOWN_ARROW, 2)
 	}
 }
 

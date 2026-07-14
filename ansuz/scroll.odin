@@ -19,9 +19,10 @@ THEME_SCROLLBAR_THUMB :: Color{120, 123, 130, 180}
 SCROLLBAR_WIDTH       :: f32(6)
 
 Scroll_State :: struct {
-	offset_y:   f32,    // pixels scrolled from top
-	content_h:  f32,    // total content height (measured from previous frame)
-	viewport_h: f32,    // visible height (measured from previous frame)
+	axis:     Axis,   // scroll direction (follows the container's layout axis)
+	offset:   f32,    // pixels scrolled along the scroll axis (from top/left)
+	content:  f32,    // total content extent along the scroll axis (measured from previous frame)
+	viewport: f32,    // visible extent along the scroll axis (measured from previous frame)
 }
 
 scroll_begin :: proc(
@@ -46,6 +47,7 @@ scroll_begin :: proc(
 		mgr.scroll_states[id] = Scroll_State{}
 	}
 	ss := &mgr.scroll_states[id]
+	ss.axis = axis
 
 	// Track deepest scroll container under mouse for wheel routing.
 	// Since children are visited after parents, the last writer is the deepest.
@@ -63,21 +65,22 @@ scroll_begin :: proc(
 	b.padding      = padding
 	b.bg_color     = bg_color
 	b.flags        = {.Clip_Children}
-	b.scroll_offset = {0, -ss.offset_y}
+	b.scroll_offset = scroll_offset_for_axis(axis, ss.offset)
 
 	// Register for prev_rect update and hit testing
 	get_or_create_widget_state(mgr, id)
 	append(&mgr.widget_box_map, Widget_Box_Entry{id = id, box_index = idx})
 
 	// Queue scrollbar deferred draw (uses previous frame's measurements)
-	if ss.content_h > ss.viewport_h && ss.viewport_h > 0 {
+	if ss.content > ss.viewport && ss.viewport > 0 {
 		append(&mgr.deferred_draws, Deferred_Draw{
 			box_index = idx,
 			kind      = .Scrollbar,
 			scrollbar = Deferred_Scrollbar_Data{
-				offset_y   = ss.offset_y,
-				content_h  = ss.content_h,
-				viewport_h = ss.viewport_h,
+				axis     = axis,
+				offset   = ss.offset,
+				content  = ss.content,
+				viewport = ss.viewport,
 			},
 		})
 	}
@@ -86,4 +89,13 @@ scroll_begin :: proc(
 
 scroll_end :: proc(mgr: ^Manager) {
 	pop_box(mgr)
+}
+
+// Convert a scalar scroll offset along `axis` into the Vec2 shift applied to
+// the container's children. Content is pushed up (vertical) or left (horizontal).
+scroll_offset_for_axis :: proc(axis: Axis, offset: f32) -> Vec2 {
+	if axis == .Horizontal {
+		return {-offset, 0}
+	}
+	return {0, -offset}
 }

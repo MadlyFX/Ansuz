@@ -49,9 +49,10 @@ Deferred_Text_Cursor_Data :: struct {
 }
 
 Deferred_Scrollbar_Data :: struct {
-	offset_y:   f32,
-	content_h:  f32,
-	viewport_h: f32,
+	axis:     Axis,
+	offset:   f32,
+	content:  f32,
+	viewport: f32,
 }
 
 Deferred_Draw :: struct {
@@ -412,26 +413,41 @@ emit_text_cursor_draw :: proc(mgr: ^Manager, cr: Rect, data: Deferred_Text_Curso
 // --- Scrollbar ---
 
 emit_scrollbar_draw :: proc(mgr: ^Manager, rect: Rect, data: Deferred_Scrollbar_Data) {
-	if data.content_h <= 0 || data.viewport_h <= 0 { return }
+	if data.content <= 0 || data.viewport <= 0 { return }
 
 	bar_w := SCROLLBAR_WIDTH
+	ratio := data.viewport / data.content
+	max_scroll := data.content - data.viewport
+	scroll_ratio := data.offset / max_scroll if max_scroll > 0 else 0
+
+	if data.axis == .Horizontal {
+		// Bottom-aligned horizontal scrollbar
+		track_rect := Rect{
+			rect.x + 2,
+			rect.y + rect.h - bar_w - 2,
+			rect.w - 4,
+			bar_w,
+		}
+		push_filled_rect(&mgr.draw_list, track_rect, THEME_SCROLLBAR_BG, bar_w / 2)
+
+		thumb_w := max(20, track_rect.w * ratio)
+		thumb_x := track_rect.x + (track_rect.w - thumb_w) * scroll_ratio
+		thumb_rect := Rect{thumb_x, track_rect.y, thumb_w, bar_w}
+		push_filled_rect(&mgr.draw_list, thumb_rect, THEME_SCROLLBAR_THUMB, bar_w / 2)
+		return
+	}
+
+	// Right-aligned vertical scrollbar
 	track_rect := Rect{
 		rect.x + rect.w - bar_w - 2,
 		rect.y + 2,
 		bar_w,
 		rect.h - 4,
 	}
-
-	// Track background
 	push_filled_rect(&mgr.draw_list, track_rect, THEME_SCROLLBAR_BG, bar_w / 2)
 
-	// Thumb
-	ratio := data.viewport_h / data.content_h
 	thumb_h := max(20, track_rect.h * ratio)
-	max_scroll := data.content_h - data.viewport_h
-	scroll_ratio := data.offset_y / max_scroll if max_scroll > 0 else 0
 	thumb_y := track_rect.y + (track_rect.h - thumb_h) * scroll_ratio
-
 	thumb_rect := Rect{track_rect.x, thumb_y, bar_w, thumb_h}
 	push_filled_rect(&mgr.draw_list, thumb_rect, THEME_SCROLLBAR_THUMB, bar_w / 2)
 }

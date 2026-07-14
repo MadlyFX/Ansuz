@@ -222,9 +222,10 @@ apply_scroll_offsets :: proc(mgr: ^Manager, box_idx: int) {
 	// This ensures only one scroll processes the event (innermost wins).
 	if box_idx == 0 && !mgr.popup_consumed_scroll && mgr.scroll_wheel_candidate != ID_NONE && mgr.input.mouse_scroll_y != 0 {
 		if ss, ok := &mgr.scroll_states[mgr.scroll_wheel_candidate]; ok {
-			ss.offset_y -= mgr.input.mouse_scroll_y * SCROLL_SPEED
-			max_scroll := max(0, ss.content_h - ss.viewport_h)
-			ss.offset_y = clamp(ss.offset_y, 0, max_scroll)
+			// The single mouse wheel drives whichever axis the hovered container scrolls.
+			ss.offset -= mgr.input.mouse_scroll_y * SCROLL_SPEED
+			max_scroll := max(0, ss.content - ss.viewport)
+			ss.offset = clamp(ss.offset, 0, max_scroll)
 		}
 	}
 
@@ -232,27 +233,32 @@ apply_scroll_offsets :: proc(mgr: ^Manager, box_idx: int) {
 
 	// If this box has a scroll offset, measure content and apply
 	if b.scroll_offset.x != 0 || b.scroll_offset.y != 0 || .Clip_Children in b.flags {
-		// Measure total content extent from children (before offsetting)
+		// Measure total content extent from children (before offsetting),
+		// along both axes so either scroll direction can be supported.
+		content_right:  f32 = 0
 		content_bottom: f32 = 0
 		child := b.first_child
 		for child != -1 {
 			c := &mgr.boxes[child]
+			right  := c.computed_rect.x + c.computed_rect.w - b.content_rect.x
 			bottom := c.computed_rect.y + c.computed_rect.h - b.content_rect.y
+			content_right  = max(content_right, right)
 			content_bottom = max(content_bottom, bottom)
 			child = c.next_sibling
 		}
 
 		// Update scroll state if this box has one
 		if ss, ok := &mgr.scroll_states[b.id]; ok {
-			ss.content_h = content_bottom
-			ss.viewport_h = b.content_rect.h
+			horizontal := ss.axis == .Horizontal
+			ss.content  = content_right  if horizontal else content_bottom
+			ss.viewport = b.content_rect.w if horizontal else b.content_rect.h
 
 			// Re-clamp offset in case content size changed
-			max_scroll := max(0, ss.content_h - ss.viewport_h)
-			ss.offset_y = clamp(ss.offset_y, 0, max_scroll)
+			max_scroll := max(0, ss.content - ss.viewport)
+			ss.offset = clamp(ss.offset, 0, max_scroll)
 
 			// Update the box's scroll offset from the clamped value
-			b.scroll_offset = {0, -ss.offset_y}
+			b.scroll_offset = scroll_offset_for_axis(ss.axis, ss.offset)
 		}
 
 		// Offset all descendant rects

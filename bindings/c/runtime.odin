@@ -257,6 +257,7 @@ ansuz_input_key :: proc "c" (key: u32, down: u8) {
 	case 8: manager.input.key_enter = is_down
 	case 9: manager.input.key_shift = is_down
 	case 10: manager.input.key_ctrl = is_down
+	case 11: manager.input.key_tab = is_down
 	}
 }
 

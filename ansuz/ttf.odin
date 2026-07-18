@@ -11,13 +11,21 @@ import stbtt "vendor:stb/truetype"
 // pixel_size: the height in pixels to rasterize glyphs at.
 // extra_codepoints: optional slice of Unicode codepoints (> 255) to bake into
 //   the atlas. Pass FONT_EXTRA_CODEPOINTS[:] for common UI symbols.
+// antialiasing: .Grayscale keeps stb_truetype's smooth coverage edges;
+//   .None collapses coverage to hard on/off pixels for a crisp,
+//   unantialiased look (e-ink, low-density LCDs, pixel-art styling).
 // Returns the Font and true on success, or an empty Font and false on failure.
-load_font_from_data :: proc(ttf_data: []u8, pixel_size: f32, extra_codepoints: []rune = nil) -> (Font, bool) {
+load_font_from_data :: proc(
+	ttf_data: []u8,
+	pixel_size: f32,
+	extra_codepoints: []rune = nil,
+	antialiasing: Font_Antialiasing = .Grayscale,
+) -> (Font, bool) {
 	font: Font
 	font.kind = .Atlas
 	font.pixel_size = pixel_size
 	font.scale_norm = f32(FONT_GLYPH_HEIGHT) / pixel_size
-	font.antialiasing = .Grayscale
+	font.antialiasing = antialiasing
 	font.oversample_x = u8(FONT_TTF_OVERSAMPLE_X)
 	font.oversample_y = u8(FONT_TTF_OVERSAMPLE_Y)
 
@@ -76,6 +84,12 @@ load_font_from_data :: proc(ttf_data: []u8, pixel_size: f32, extra_codepoints: [
 	if pack_result == 0 {
 		delete(font.atlas_pixels)
 		return {}, false
+	}
+
+	if antialiasing == .None {
+		for &p in font.atlas_pixels {
+			p = 255 if p >= 128 else 0
+		}
 	}
 
 	// Extract ASCII glyph metrics (32-127)

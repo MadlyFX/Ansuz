@@ -39,6 +39,9 @@ Deferred_Text :: struct {
 	clip:      bool, // clip text to content rect (for text inputs)
 	offset_x:  f32, // horizontal scroll offset (single-line text inputs)
 	offset_y:  f32, // vertical scroll offset (multiline text inputs)
+	selection_start: int, // byte range highlighted before this text is drawn
+	selection_end:   int,
+	selection_color: Color,
 }
 
 // --- Label ---

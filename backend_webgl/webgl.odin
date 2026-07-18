@@ -1,6 +1,7 @@
 package ansuz_backend_webgl
 
 import gl "vendor:wasm/WebGL"
+import "core:math"
 import ansuz "../ansuz"
 
 // --- WebGL Backend ---
@@ -42,7 +43,11 @@ WebGL_Data :: struct {
 	vertices:            [MAX_VERTICES]Vertex,
 	vertex_count:        int,
 	current_program:     gl.Program,
+	// Layout stays in CSS pixels while the canvas drawing buffer may contain
+	// multiple physical pixels per CSS pixel on high-density displays.
 	width, height:       f32,
+	framebuffer_width:   i32,
+	framebuffer_height:  i32,
 	loaded_fonts:        [dynamic]WebGL_Font,
 }
 
@@ -65,6 +70,34 @@ create :: proc(width, height: i32) -> ansuz.Backend {
 	backend.load_font = webgl_load_font
 
 	return backend
+}
+
+// Update the logical window size after the browser host resizes the canvas.
+// The backing-buffer size is read from WebGL at the start of each frame so it
+// can independently follow devicePixelRatio.
+resize :: proc(backend: ^ansuz.Backend, width, height: i32) {
+	w := max(width, 1)
+	h := max(height, 1)
+	data := cast(^WebGL_Data)backend.user_data
+	data.width = f32(w)
+	data.height = f32(h)
+	backend.width = w
+	backend.height = h
+}
+
+// Ratio of drawing-buffer pixels to logical CSS pixels (devicePixelRatio when
+// the host scales the canvas). Web hosts use this to rasterize font atlases
+// near the physical size at which glyphs will be displayed.
+pixel_density :: proc(backend: ^ansuz.Backend) -> f32 {
+	data := cast(^WebGL_Data)backend.user_data
+	if data == nil || data.width <= 0 {
+		return 1
+	}
+	buffer_w := f32(gl.DrawingBufferWidth())
+	if buffer_w <= 0 {
+		return 1
+	}
+	return buffer_w / data.width
 }
 
 // --- Shaders ---
@@ -167,14 +200,13 @@ webgl_shutdown :: proc(backend: ^ansuz.Backend) {
 webgl_begin_frame :: proc(backend: ^ansuz.Backend) {
 	data := cast(^WebGL_Data)backend.user_data
 
-	// Update viewport to match canvas
+	// Render into every physical pixel, but retain CSS-pixel coordinates for
+	// layout and input (the same split used by the high-DPI SDL backend).
 	canvas_w := gl.DrawingBufferWidth()
 	canvas_h := gl.DrawingBufferHeight()
 	gl.Viewport(0, 0, canvas_w, canvas_h)
-	data.width = f32(canvas_w)
-	data.height = f32(canvas_h)
-	backend.width = canvas_w
-	backend.height = canvas_h
+	data.framebuffer_width = canvas_w
+	data.framebuffer_height = canvas_h
 
 	gl.ClearColor(0.118, 0.118, 0.133, 1)
 	gl.Clear(u32(gl.COLOR_BUFFER_BIT))
@@ -253,12 +285,15 @@ webgl_execute :: proc(backend: ^ansuz.Backend, cmd: ansuz.Draw_Command) {
 	case ansuz.Draw_Clip:
 		flush_batch(data, data.current_program)
 		gl.Enable(gl.SCISSOR_TEST)
-		// WebGL scissor is bottom-left origin
+		// WebGL scissor uses physical pixels and a bottom-left origin; Ansuz
+		// clips use logical CSS pixels and a top-left origin.
+		scale_x := f32(data.framebuffer_width) / max(data.width, 1)
+		scale_y := f32(data.framebuffer_height) / max(data.height, 1)
 		gl.Scissor(
-			i32(c.rect.x),
-			i32(data.height - c.rect.y - c.rect.h),
-			i32(c.rect.w),
-			i32(c.rect.h),
+			i32(c.rect.x * scale_x),
+			i32((data.height - c.rect.y - c.rect.h) * scale_y),
+			i32(c.rect.w * scale_x),
+			i32(c.rect.h * scale_y),
 		)
 
 	case ansuz.Draw_Image:
@@ -520,6 +555,15 @@ draw_text_ttf_webgl :: proc(data: ^WebGL_Data, pos: ansuz.Vec2, text: string, co
 	atlas_w := f32(font.atlas_width)
 	atlas_h := f32(font.atlas_height)
 
+	// Glyph advances are fractional, so unsnapped quads land between pixels
+	// and linear filtering smears the atlas texels, softening text that was
+	// rasterized for 1:1 display. Snap each glyph origin to a physical pixel
+	// (density-aware when the canvas backing store follows devicePixelRatio).
+	density := f32(data.framebuffer_width) / max(data.width, 1)
+	if density <= 0 {
+		density = 1
+	}
+
 	for ch in text {
 		if ch == '\n' {
 			cursor_x = start_x
@@ -540,11 +584,11 @@ draw_text_ttf_webgl :: proc(data: ^WebGL_Data, pos: ansuz.Vec2, text: string, co
 		u1 := f32(g.atlas_x + g.atlas_w) / atlas_w
 		v1 := f32(g.atlas_y + g.atlas_h) / atlas_h
 
-		// Destination quad with baseline offset
-		dx0 := cursor_x + g.x_offset * scale
-		dy0 := cursor_y + (font.ascent + g.y_offset) * scale
-		dx1 := cursor_x + g.x_offset2 * scale
-		dy1 := cursor_y + (font.ascent + g.y_offset2) * scale
+		// Destination quad with baseline offset, snapped to physical pixels
+		dx0 := math.round((cursor_x + g.x_offset * scale) * density) / density
+		dy0 := math.round((cursor_y + (font.ascent + g.y_offset) * scale) * density) / density
+		dx1 := dx0 + (g.x_offset2 - g.x_offset) * scale
+		dy1 := dy0 + (g.y_offset2 - g.y_offset) * scale
 
 		if data.vertex_count + 6 > MAX_VERTICES {
 			flush_batch(data, data.current_program)

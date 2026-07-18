@@ -108,9 +108,16 @@ _ansuz_text_input :: proc(char_code: i32) {
 
 opensans: ansuz.Font_Handle
 opensans_bold: ansuz.Font_Handle
+opensans_heading: ansuz.Font_Handle
 
 test_image: ansuz.Image_Handle
 selected_item := 0
+
+// Demo text renders at these widget scales. Font atlases are rasterized at the
+// matching physical pixel size (scale x glyph height x devicePixelRatio) so
+// glyphs keep proper weight instead of being minified from a large atlas.
+DEMO_FONT_SCALE    :: f32(3)
+HEADING_FONT_SCALE :: f32(6)
 
 main :: proc() {
 	sdl = backend.create(1024, 768)
@@ -118,16 +125,19 @@ main :: proc() {
 
 	ansuz.init(&mgr, &sdl)
 
+	// Load OpenSans atlases at display size (antialiased TTF)
+	density := backend.pixel_density(&sdl)
+	body_px := DEMO_FONT_SCALE * ansuz.FONT_GLYPH_HEIGHT * density
+	heading_px := HEADING_FONT_SCALE * ansuz.FONT_GLYPH_HEIGHT * density
+
 	font_ok := false
-	// Load OpenSans as the default font (antialiased TTF)
-	opensans, font_ok = ansuz.load_font(&mgr, ansuz.OPENSANS_REGULAR, 96)
+	opensans, font_ok = ansuz.load_font(&mgr, ansuz.OPENSANS_REGULAR, body_px)
 	if font_ok {
 		ansuz.set_default_font(&mgr, opensans)
-		ansuz.DEFAULT_FONT_SCALE = ansuz.OPENSANS_FONT_SCALE
+		ansuz.DEFAULT_FONT_SCALE = DEMO_FONT_SCALE
 	}
-
-	// Load OpenSans Bold as the bold font (antialiased TTF)
-	opensans_bold, font_ok = ansuz.load_font(&mgr, ansuz.OPENSANS_BOLD, 96)
+	opensans_bold, font_ok = ansuz.load_font(&mgr, ansuz.OPENSANS_BOLD, body_px)
+	opensans_heading, font_ok = ansuz.load_font(&mgr, ansuz.OPENSANS_BOLD, heading_px)
 
 	img_err: image.Error
 	img, img_err = png.load_from_bytes(PNG_DATA)
@@ -188,54 +198,42 @@ step :: proc(dt: f32) -> bool {
 		ansuz.stack_begin(&mgr, size = {ansuz.SIZE_GROW, ansuz.SIZE_GROW})
 		ansuz.scroll_begin(
 			&mgr,
-			gap = 14,
+			gap = 8,
 			size = {ansuz.SIZE_GROW, ansuz.SIZE_GROW},
-			padding = {20, 24, 20, 24},
+			padding = {14, 20, 14, 20},
 		)
 		preview_color := ansuz.Color{u8(r_val * 255), u8(g_val * 255), u8(b_val * 255), 255} //Controlled by sliders below
 
 		ansuz.heading(
 			&mgr,
 			"Ansuz Demo",
-			scale = 10,
-			font = opensans_bold,
+			scale = HEADING_FONT_SCALE,
+			font = opensans_heading,
 			padding = {0, 900, 0, header_anim_val},
 			color = preview_color,
 			bg_color = ansuz.COLOR_DARK_GRAY,
 		)
-
-
 		ansuz.label(
 			&mgr,
 			"A cross-platform UI framework in Odin",
-			scale = 4,
 			font = opensans,
-			padding = {-10, 0, 0, 0},
+			padding = {-6, 0, 0, 0},
 			color = ansuz.THEME_TEXT_DIM,
 		)
 		ansuz.box(
 			&mgr,
-			size = {ansuz.size_grow(1.0), ansuz.size_fixed(3)},
+			size = {ansuz.size_grow(1.0), ansuz.size_fixed(2)},
 			bg_color = ansuz.COLOR_DARK_GRAY,
-			margin = {-10, 0, 0, 0},
+			margin = {-6, 0, 0, 0},
 		) //Divider
-		ansuz.box(
-			&mgr,
-			size = {ansuz.size_grow(1.0), ansuz.size_fixed(3)},
-			bg_color = ansuz.COLOR_TRANSPARENT,
-			margin = {-10, 0, 0, 0},
-		) //Spacer
 
-		//buttons
-		ansuz.label(&mgr, "Buttons", font = opensans_bold, padding = {-20, 4, 4, 4})
-		ansuz.flex_begin(
-			&mgr,
-			axis = .Horizontal,
-			gap = 10,
-			size = {ansuz.SIZE_GROW, ansuz.SIZE_FIT},
-			align = .Center,
-		)
-		if .Clicked in ansuz.button(&mgr, "Click Me", scale = 4) {
+		//buttons | sliders
+		ansuz.flex_begin(&mgr, axis = .Horizontal, gap = 28, size = {ansuz.SIZE_GROW, ansuz.SIZE_FIT}, align = .Start)
+
+		ansuz.flex_begin(&mgr, axis = .Vertical, gap = 6, size = {ansuz.SIZE_FIT, ansuz.SIZE_FIT})
+		ansuz.label(&mgr, "Buttons", font = opensans_bold, padding = {2, 4, 0, 4})
+		ansuz.flex_begin(&mgr, axis = .Horizontal, gap = 8, size = {ansuz.SIZE_FIT, ansuz.SIZE_FIT}, align = .Center)
+		if .Clicked in ansuz.button(&mgr, "Click Me") {
 			click_count += 1
 			ansuz.animate_f32(
 				&mgr,
@@ -245,51 +243,35 @@ step :: proc(dt: f32) -> bool {
 				easing = .Elastic_Out,
 			)
 		}
-
-		if .Clicked in ansuz.button(&mgr, "Reset", scale = 4) {click_count = 0}
-		ansuz.label(
-			&mgr,
-			fmt.tprintf("Clicks: %d", click_count),
-			padding = {6, 12, 6, 12},
-			font = opensans,
-		)
+		if .Clicked in ansuz.button(&mgr, "Reset") {click_count = 0}
+		ansuz.label(&mgr, fmt.tprintf("Clicks: %d", click_count), padding = {4, 8, 4, 8}, font = opensans)
 		ansuz.flex_end(&mgr)
 
-		//sliders
-		ansuz.label(&mgr, "Sliders", font = opensans_bold)
-		ansuz.slider_labeled(&mgr, "Value", &slider_val, font = opensans)
+		ansuz.label(&mgr, "Checkboxes", font = opensans_bold, padding = {8, 4, 0, 4})
+		ansuz.checkbox(&mgr, "Enable feature A", &check_a, font = opensans)
+		ansuz.checkbox(&mgr, "Enable feature B", &check_b, font = opensans)
+		ansuz.flex_end(&mgr)
 
-		ansuz.flex_begin(
-			&mgr,
-			axis = .Horizontal,
-			gap = 16,
-			size = {ansuz.SIZE_GROW, ansuz.SIZE_FIT},
-			align = .Center,
-		)
+		ansuz.flex_begin(&mgr, axis = .Vertical, gap = 4, size = {ansuz.SIZE_GROW, ansuz.SIZE_FIT})
+		ansuz.label(&mgr, "Sliders", font = opensans_bold, padding = {2, 4, 0, 4})
+		ansuz.slider_labeled(&mgr, "Value", &slider_val, font = opensans)
+		ansuz.flex_begin(&mgr, axis = .Horizontal, gap = 12, size = {ansuz.SIZE_GROW, ansuz.SIZE_FIT}, align = .Center)
 		ansuz.flex_begin(&mgr, axis = .Vertical, gap = 4, size = {ansuz.SIZE_GROW, ansuz.SIZE_FIT})
 		ansuz.slider_labeled(&mgr, "R", &r_val, font = opensans)
 		ansuz.slider_labeled(&mgr, "G", &g_val, font = opensans)
 		ansuz.slider_labeled(&mgr, "B", &b_val, font = opensans)
 		ansuz.flex_end(&mgr)
-		ansuz.box(&mgr, size = {ansuz.size_fixed(60), ansuz.size_fixed(60)})
+		ansuz.box(&mgr, size = {ansuz.size_fixed(48), ansuz.size_fixed(48)}, bg_color = preview_color)
+		ansuz.flex_end(&mgr)
 		ansuz.flex_end(&mgr)
 
-		//checkboxes/dropdowns
-		ansuz.flex_begin(
-			&mgr,
-			axis = .Horizontal,
-			gap = 40,
-			size = {ansuz.SIZE_GROW, ansuz.SIZE_FIT},
-		)
-
-		ansuz.flex_begin(&mgr, axis = .Vertical, gap = 6, size = {ansuz.SIZE_FIT, ansuz.SIZE_FIT})
-		ansuz.label(&mgr, "Checkboxes", font = opensans_bold)
-		ansuz.checkbox(&mgr, "Enable feature A", &check_a, font = opensans)
-		ansuz.checkbox(&mgr, "Enable feature B", &check_b, font = opensans)
 		ansuz.flex_end(&mgr)
 
+		//dropdown | menu | image
+		ansuz.flex_begin(&mgr, axis = .Horizontal, gap = 28, size = {ansuz.SIZE_GROW, ansuz.SIZE_FIT}, align = .Start)
+
 		ansuz.flex_begin(&mgr, axis = .Vertical, gap = 6, size = {ansuz.SIZE_FIT, ansuz.SIZE_FIT})
-		ansuz.label(&mgr, "Dropdown", font = opensans_bold)
+		ansuz.label(&mgr, "Dropdown", font = opensans_bold, padding = {2, 4, 0, 4})
 		ansuz.dropdown(
 			&mgr,
 			&selected_item,
@@ -305,7 +287,7 @@ step :: proc(dt: f32) -> bool {
 		ansuz.flex_end(&mgr)
 
 		ansuz.flex_begin(&mgr, axis = .Vertical, gap = 6, size = {ansuz.SIZE_FIT, ansuz.SIZE_FIT})
-		ansuz.label(&mgr, "Menu Popup", font = opensans_bold)
+		ansuz.label(&mgr, "Menu Popup", font = opensans_bold, padding = {2, 4, 0, 4})
 		ansuz.menu_button(
 			&mgr,
 			"Actions",
@@ -322,132 +304,94 @@ step :: proc(dt: f32) -> bool {
 			action_text = menu_options[last_menu_action]
 		}
 		ansuz.label(&mgr, fmt.tprintf("Last action: %s", action_text), font = opensans)
+		ansuz.flex_end(&mgr)
+
+		ansuz.flex_begin(&mgr, axis = .Vertical, gap = 6, size = {ansuz.SIZE_FIT, ansuz.SIZE_FIT})
+		ansuz.label(&mgr, "Overlay", font = opensans_bold, padding = {2, 4, 0, 4})
 		if .Clicked in ansuz.button(&mgr, "Show Floating Overlay", font = opensans) {
 			overlay_open = true
 			ansuz.animate_f32_id(&mgr, modal_anim_id, &overlay_t, 1, duration = 0.25, easing = .Cubic_Out)
 		}
 		ansuz.flex_end(&mgr)
+
+		ansuz.flex_begin(&mgr, axis = .Vertical, gap = 6, size = {ansuz.SIZE_FIT, ansuz.SIZE_FIT})
+		ansuz.label(&mgr, "Image", font = opensans_bold, padding = {2, 4, 0, 4})
+		ansuz.image(&mgr, test_image, size = {ansuz.size_fixed(160), ansuz.size_fixed(74)})
 		ansuz.flex_end(&mgr)
 
-		//text input
-		ansuz.label(&mgr, "Text Input", font = opensans_bold)
+		ansuz.flex_end(&mgr)
+
+		//text input | animations
+		ansuz.flex_begin(&mgr, axis = .Horizontal, gap = 28, size = {ansuz.SIZE_GROW, ansuz.SIZE_FIT}, align = .Start)
+
+		ansuz.flex_begin(&mgr, axis = .Vertical, gap = 6, size = {ansuz.SIZE_GROW, ansuz.SIZE_FIT})
+		ansuz.label(&mgr, "Text Input", font = opensans_bold, padding = {2, 4, 0, 4})
 		ansuz.text_input(
 			&mgr,
 			&input_buf,
 			font = opensans,
 			placeholder = "Type here...",
-			size = {ansuz.size_fixed(300), ansuz.SIZE_FIT},
+			size = {ansuz.SIZE_GROW, ansuz.SIZE_FIT},
 		)
-		ansuz.label(&mgr, fmt.tprintf("Content: %s", string(input_buf[:])), font = opensans)
-
-		ansuz.label(&mgr, "Multi-line", font = opensans_bold)
+		ansuz.label(&mgr, fmt.tprintf("Content: %s", string(input_buf[:])), font = opensans, clip = true, size = {ansuz.SIZE_GROW, ansuz.SIZE_FIT})
 		ansuz.text_input(
 			&mgr,
 			&multi_buf,
 			font = opensans,
 			multiline = true,
-			size = {ansuz.SIZE_GROW, ansuz.size_fixed(100)},
-			scale = 3.0,
+			size = {ansuz.SIZE_GROW, ansuz.size_fixed(96)},
 		)
+		ansuz.flex_end(&mgr)
 
-		//animations
-		ansuz.label(&mgr, "Animations", font = opensans_bold)
+		ansuz.flex_begin(&mgr, axis = .Vertical, gap = 6, size = {ansuz.SIZE_GROW, ansuz.SIZE_FIT}, align = .Start)
+		ansuz.label(&mgr, "Animations", font = opensans_bold, padding = {2, 4, 0, 4})
+		ansuz.flex_begin(&mgr, axis = .Horizontal, gap = 8, size = {ansuz.SIZE_GROW, ansuz.SIZE_FIT}, align = .Center)
+		if .Clicked in ansuz.button(&mgr, "Ease Out") {
+			ansuz.animate_f32(&mgr, &anim_val, 1 if anim_val < 0.5 else 0, duration = 0.5, easing = .Cubic_Out)
+		}
+		if .Clicked in ansuz.button(&mgr, "Bounce") {
+			ansuz.animate_f32(&mgr, &bounce_val, 300 if bounce_val < 150 else 50, duration = 0.8, easing = .Bounce_Out)
+		}
+		if .Clicked in ansuz.button(&mgr, "Elastic") {
+			ansuz.animate_f32(&mgr, &anim_val, 1 if anim_val < 0.5 else 0, duration = 0.7, easing = .Elastic_Out)
+		}
+		ansuz.flex_end(&mgr)
+		ansuz.flex_begin(
+			&mgr,
+			axis = .Horizontal,
+			size = {ansuz.SIZE_GROW, ansuz.size_fixed(14)},
+			bg_color = ansuz.Color{40, 43, 50, 255},
+		)
+		ansuz.box(&mgr, size = {ansuz.size_pct(anim_val), ansuz.SIZE_GROW}, bg_color = ansuz.COLOR_BLUE)
+		ansuz.flex_end(&mgr)
+		ansuz.box(&mgr, size = {ansuz.size_fixed(bounce_val), ansuz.size_fixed(16)}, bg_color = ansuz.COLOR_MAGENTA)
+		ansuz.flex_end(&mgr)
+
+		ansuz.flex_end(&mgr)
+
+		//scrollbox
+		ansuz.label(&mgr, "Scrollbox", font = opensans_bold, padding = {2, 4, 0, 4})
 		ansuz.flex_begin(
 			&mgr,
 			axis = .Horizontal,
 			gap = 10,
-			size = {ansuz.SIZE_GROW, ansuz.SIZE_FIT},
-			align = .Center,
-		)
-		if .Clicked in ansuz.button(&mgr, "Ease Out") {
-			ansuz.animate_f32(
-				&mgr,
-				&anim_val,
-				1 if anim_val < 0.5 else 0,
-				duration = 0.5,
-				easing = .Cubic_Out,
-			)
-		}
-		if .Clicked in ansuz.button(&mgr, "Bounce") {
-			ansuz.animate_f32(
-				&mgr,
-				&bounce_val,
-				300 if bounce_val < 150 else 50,
-				duration = 0.8,
-				easing = .Bounce_Out,
-			)
-		}
-		if .Clicked in ansuz.button(&mgr, "Elastic") {
-			ansuz.animate_f32(
-				&mgr,
-				&anim_val,
-				1 if anim_val < 0.5 else 0,
-				duration = 0.7,
-				easing = .Elastic_Out,
-			)
-		}
-
-		ansuz.flex_end(&mgr)
-
-		ansuz.flex_begin(
-			&mgr,
-			axis = .Horizontal,
-			size = {ansuz.SIZE_GROW, ansuz.size_fixed(16)},
-			bg_color = ansuz.Color{40, 43, 50, 255},
-		)
-		ansuz.box(
-			&mgr,
-			size = {ansuz.size_pct(anim_val), ansuz.SIZE_GROW},
-			bg_color = ansuz.COLOR_BLUE,
-		)
-
-		ansuz.flex_end(&mgr)
-		ansuz.box(
-			&mgr,
-			size = {ansuz.size_fixed(bounce_val), ansuz.size_fixed(20)},
-			bg_color = ansuz.COLOR_MAGENTA,
-		)
-
-		//image
-		ansuz.label(&mgr, "Image", font = opensans_bold)
-		ansuz.flex_begin(
-			&mgr,
-			axis = .Horizontal,
-			gap = 16,
-			align = .Center,
-			size = {ansuz.SIZE_GROW, ansuz.SIZE_FIT},
-		)
-		ansuz.image(&mgr, test_image)
-		ansuz.flex_end(&mgr)
-
-		//scrollbox
-		ansuz.label(&mgr, "Scrollbox", font = opensans_bold)
-		ansuz.label(
-			&mgr,
-			"Separate scroll containers:",
-			font = opensans,
-		)
-		ansuz.flex_begin(
-			&mgr,
-			axis = .Horizontal,
-			gap = 12,
-			size = {ansuz.SIZE_GROW, ansuz.size_fixed(180)},
+			size = {ansuz.SIZE_GROW, ansuz.size_fixed(160)},
 		)
 
 		ansuz.scroll_begin(
 			&mgr,
 			gap = 4,
 			size = {ansuz.SIZE_GROW, ansuz.SIZE_GROW},
-			padding = {8, 8, 8, 8},
+			padding = {6, 6, 6, 6},
 			bg_color = ansuz.Color{40, 43, 50, 255},
 		)
 		for i in 0 ..< 20 {
 			ansuz.push_id(&mgr, i)
-			ansuz.label_decorated(	
+			ansuz.label_decorated(
 				mgr = &mgr,
 				text = fmt.tprintf("Left panel item %d", i + 1),
 				decorator = fmt.tprintf("%d. ", i + 1),
-				padding = {4, 8, 4, 8},
+				padding = {2, 6, 2, 6},
 				font = opensans,
 			)
 			ansuz.pop_id(&mgr)
@@ -458,7 +402,7 @@ step :: proc(dt: f32) -> bool {
 			&mgr,
 			gap = 4,
 			size = {ansuz.SIZE_GROW, ansuz.SIZE_GROW},
-			padding = {8, 8, 8, 8},
+			padding = {6, 6, 6, 6},
 			bg_color = ansuz.Color{50, 43, 40, 255},
 		)
 		for i in 0 ..< 15 {
@@ -466,7 +410,7 @@ step :: proc(dt: f32) -> bool {
 			ansuz.label(
 				&mgr,
 				fmt.tprintf("Right panel item %d", i + 1),
-				padding = {4, 8, 4, 8},
+				padding = {2, 6, 2, 6},
 				font = opensans,
 			)
 			ansuz.pop_id(&mgr)
@@ -474,7 +418,6 @@ step :: proc(dt: f32) -> bool {
 
 		ansuz.scroll_end(&mgr)
 		ansuz.flex_end(&mgr)
-
 
 		ansuz.scroll_end(&mgr) // end outer scroll
 

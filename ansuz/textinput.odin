@@ -6,9 +6,11 @@ package ansuz
 // Cursor position and scroll state are tracked internally by the manager.
 
 Text_Input_State :: struct {
-	cursor:   int,    // cursor byte position in the buffer
-	scroll_x: f32,   // horizontal scroll offset (single-line)
-	scroll_y: f32,   // vertical scroll offset (multiline)
+	cursor:           int,  // cursor byte position in the buffer
+	selection_anchor: int,  // fixed end of the selection; equals cursor when empty
+	dragging:         bool,
+	scroll_x:         f32, // horizontal scroll offset (single-line)
+	scroll_y:         f32, // vertical scroll offset (multiline)
 }
 
 THEME_TEXTINPUT_BG           :: Color{35, 38, 45, 255}
@@ -33,6 +35,7 @@ text_input :: proc(
 	text_color: Color = THEME_TEXT,
 	placeholder_color: Color = THEME_TEXT_DIM,
 	cursor_color: Color = THEME_TEXTINPUT_CURSOR,
+	selection_color: Color = Color{80, 140, 220, 110},
 	loc          := #caller_location,
 ) -> (Interaction, ^Text_Input_State) {
 	effective_font := resolve_font(mgr, font)
@@ -58,69 +61,82 @@ text_input :: proc(
 
 	// Get or create text input state
 	if id not_in mgr.text_states {
-		mgr.text_states[id] = Text_Input_State{cursor = len(buf^)}
+		mgr.text_states[id] = Text_Input_State{cursor = len(buf^), selection_anchor = len(buf^)}
 	}
 	ts := &mgr.text_states[id]
+	ts.cursor = clamp(ts.cursor, 0, len(buf^))
+	ts.selection_anchor = clamp(ts.selection_anchor, 0, len(buf^))
 
-	// Click to position cursor (using prev_rect from last frame)
-	if mgr.input.mouse_left_pressed && is_focused && prev_rect.w > 0 {
-		cr_x := prev_rect.x + padding[3]
-		cr_y := prev_rect.y + padding[0]
-		line_h := get_line_height(mgr, effective_font, scale)
-
-		if !multiline {
-			rel_x := mgr.input.mouse_x - cr_x - ts.scroll_x
-			ts.cursor = hit_test_text(mgr, string(buf^[:]), rel_x, effective_font, scale)
-		} else {
-			rel_x := mgr.input.mouse_x - cr_x
-			rel_y := mgr.input.mouse_y - cr_y + ts.scroll_y
-			target_line := max(0, int(rel_y / line_h))
-
-			line := 0
-			line_start := 0
-			found := false
-			for i in 0..<len(buf^) {
-				if buf^[i] == '\n' {
-					if line == target_line {
-						line_text := string(buf^[line_start:i])
-						ts.cursor = line_start + hit_test_text(mgr, line_text, rel_x, effective_font, scale)
-						found = true
-						break
-					}
-					line += 1
-					line_start = i + 1
-				}
-			}
-			if !found {
-				line_text := string(buf^[line_start:])
-				if line == target_line {
-					ts.cursor = line_start + hit_test_text(mgr, line_text, rel_x, effective_font, scale)
-				} else {
-					ts.cursor = len(buf^)
-				}
-			}
+	// Click and drag establish a real selection. Shift-click extends the current
+	// selection instead of replacing its anchor.
+	if mgr.input.mouse_left_pressed && .Pressed in interaction && prev_rect.w > 0 {
+		position := text_input_hit_cursor(
+			mgr,
+			string(buf^[:]),
+			multiline,
+			effective_font,
+			scale,
+			prev_rect,
+			padding,
+			ts.scroll_x,
+			ts.scroll_y,
+			mgr.input.mouse_x,
+			mgr.input.mouse_y,
+		)
+		if !mgr.input.key_shift {
+			ts.selection_anchor = position
 		}
+		ts.cursor = position
+		ts.dragging = true
+	} else if ts.dragging && mgr.input.mouse_left && prev_rect.w > 0 {
+		ts.cursor = text_input_hit_cursor(
+			mgr,
+			string(buf^[:]),
+			multiline,
+			effective_font,
+			scale,
+			prev_rect,
+			padding,
+			ts.scroll_x,
+			ts.scroll_y,
+			mgr.input.mouse_x,
+			mgr.input.mouse_y,
+		)
+	}
+	if !mgr.input.mouse_left {
+		ts.dragging = false
 	}
 
 	// Handle keyboard input when focused
 	if is_focused {
+		if mgr.input.key_ctrl && mgr.input.key_code == 'A' {
+			ts.selection_anchor = 0
+			ts.cursor = len(buf^)
+		}
+
 		if mgr.input.key_copy && mgr.backend.set_clipboard_text != nil {
-			_ = mgr.backend.set_clipboard_text(mgr.backend, string(buf^[:]))
+			if selection, selected := selected_text(buf^[:], ts); selected {
+				_ = mgr.backend.set_clipboard_text(mgr.backend, selection)
+			}
 		}
 
 		if mgr.input.key_cut && mgr.backend.set_clipboard_text != nil {
-			_ = mgr.backend.set_clipboard_text(mgr.backend, string(buf^[:]))
-			clear(buf)
-			ts.cursor = 0
+			if selection, selected := selected_text(buf^[:], ts); selected {
+				_ = mgr.backend.set_clipboard_text(mgr.backend, selection)
+				delete_text_selection(buf, ts)
+			}
 		}
 
 		if mgr.input.key_paste && mgr.backend.get_clipboard_text != nil {
 			text := mgr.backend.get_clipboard_text(mgr.backend, context.temp_allocator)
+			delete_text_selection(buf, ts)
 			insert_text_at_cursor(buf, &ts.cursor, text, multiline)
+			ts.selection_anchor = ts.cursor
 		}
 
 		// Insert typed characters
-		if !mgr.input.key_ctrl {
+		if !mgr.input.key_ctrl && mgr.input.text_char_len > 0 {
+			delete_text_selection(buf, ts)
 			for i in 0..<mgr.input.text_char_len {
 				ch := mgr.input.text_chars[i]
 				if ch >= 32 {
@@ -132,25 +148,44 @@ text_input :: proc(
 					ts.cursor += 1
 				}
 			}
+			ts.selection_anchor = ts.cursor
 		}
 
 		// Backspace
-		if mgr.input.key_backspace && ts.cursor > 0 {
-			ts.cursor -= 1
-			ordered_remove(buf, ts.cursor)
+		if mgr.input.key_backspace {
+			if !delete_text_selection(buf, ts) && ts.cursor > 0 {
+				ts.cursor -= 1
+				ordered_remove(buf, ts.cursor)
+				ts.selection_anchor = ts.cursor
+			}
 		}
 
 		// Delete
-		if mgr.input.key_delete && ts.cursor < len(buf^) {
-			ordered_remove(buf, ts.cursor)
+		if mgr.input.key_delete {
+			if !delete_text_selection(buf, ts) && ts.cursor < len(buf^) {
+				ordered_remove(buf, ts.cursor)
+				ts.selection_anchor = ts.cursor
+			}
 		}
 
 		// Arrow keys
-		if mgr.input.key_left && ts.cursor > 0 {
-			ts.cursor -= 1
+		if mgr.input.key_left {
+			selection_start, _, selected := text_selection_bounds(ts)
+			if selected && !mgr.input.key_shift {
+				ts.cursor = selection_start
+			} else if ts.cursor > 0 {
+				ts.cursor -= 1
+			}
+			if !mgr.input.key_shift { ts.selection_anchor = ts.cursor }
 		}
-		if mgr.input.key_right && ts.cursor < len(buf^) {
-			ts.cursor += 1
+		if mgr.input.key_right {
+			_, selection_end, selected := text_selection_bounds(ts)
+			if selected && !mgr.input.key_shift {
+				ts.cursor = selection_end
+			} else if ts.cursor < len(buf^) {
+				ts.cursor += 1
+			}
+			if !mgr.input.key_shift { ts.selection_anchor = ts.cursor }
 		}
 
 		// Home
@@ -162,6 +197,7 @@ text_input :: proc(
 			} else {
 				ts.cursor = 0
 			}
+			if !mgr.input.key_shift { ts.selection_anchor = ts.cursor }
 		}
 
 		// End
@@ -173,16 +209,19 @@ text_input :: proc(
 			} else {
 				ts.cursor = len(buf^)
 			}
+			if !mgr.input.key_shift { ts.selection_anchor = ts.cursor }
 		}
 
 		// Enter for multiline
 		if multiline && mgr.input.key_enter {
+			delete_text_selection(buf, ts)
 			if ts.cursor >= len(buf^) {
 				append(buf, '\n')
 			} else {
 				inject_at(buf, ts.cursor, u8('\n'))
 			}
 			ts.cursor += 1
+			ts.selection_anchor = ts.cursor
 		}
 
 		// Up/Down for multiline
@@ -202,6 +241,7 @@ text_input :: proc(
 					prev_len := prev_end - prev_start
 					ts.cursor = prev_start + min(col, prev_len)
 				}
+				if !mgr.input.key_shift { ts.selection_anchor = ts.cursor }
 			}
 			if mgr.input.key_down {
 				col := 0
@@ -219,12 +259,14 @@ text_input :: proc(
 					next_len := next_end - next_start
 					ts.cursor = next_start + min(col, next_len)
 				}
+				if !mgr.input.key_shift { ts.selection_anchor = ts.cursor }
 			}
 		}
 	}
 
-	// Clamp cursor
+	// Clamp cursor and selection after edits or external buffer changes.
 	ts.cursor = clamp(ts.cursor, 0, len(buf^))
+	ts.selection_anchor = clamp(ts.selection_anchor, 0, len(buf^))
 
 	// Auto-scroll for single-line: keep cursor visible within the content area
 	if !multiline && prev_rect.w > 0 {
@@ -312,6 +354,9 @@ text_input :: proc(
 		clip      = true,
 		offset_x  = -ts.scroll_x if !multiline else 0,
 		offset_y  = -ts.scroll_y if multiline else 0,
+		selection_start = min(ts.cursor, ts.selection_anchor) if len(buf^) > 0 else 0,
+		selection_end   = max(ts.cursor, ts.selection_anchor) if len(buf^) > 0 else 0,
+		selection_color = selection_color,
 	})
 
 	// Defer cursor drawing if focused
@@ -337,6 +382,76 @@ text_input :: proc(
 	append(&mgr.widget_box_map, Widget_Box_Entry{id = id, box_index = idx})
 
 	return interaction, ts
+}
+
+text_selection_bounds :: proc(ts: ^Text_Input_State) -> (start, end: int, selected: bool) {
+	start = min(ts.cursor, ts.selection_anchor)
+	end = max(ts.cursor, ts.selection_anchor)
+	selected = start != end
+	return
+}
+
+selected_text :: proc(buf: []u8, ts: ^Text_Input_State) -> (string, bool) {
+	start, end, selected := text_selection_bounds(ts)
+	start = clamp(start, 0, len(buf))
+	end = clamp(end, start, len(buf))
+	if !selected || start == end {
+		return "", false
+	}
+	return string(buf[start:end]), true
+}
+
+delete_text_selection :: proc(buf: ^[dynamic]u8, ts: ^Text_Input_State) -> bool {
+	start, end, selected := text_selection_bounds(ts)
+	if !selected {
+		return false
+	}
+	for _ in start..<end {
+		ordered_remove(buf, start)
+	}
+	ts.cursor = start
+	ts.selection_anchor = start
+	return true
+}
+
+text_input_hit_cursor :: proc(
+	mgr: ^Manager,
+	text: string,
+	multiline: bool,
+	font: Font_Handle,
+	scale: f32,
+	rect: Rect,
+	padding: [4]f32,
+	scroll_x, scroll_y: f32,
+	mouse_x, mouse_y: f32,
+) -> int {
+	content_x := rect.x + padding[3]
+	content_y := rect.y + padding[0]
+	if !multiline {
+		rel_x := mouse_x - content_x + scroll_x
+		return hit_test_text(mgr, text, rel_x, font, scale)
+	}
+
+	line_h := get_line_height(mgr, font, scale)
+	rel_x := mouse_x - content_x
+	rel_y := mouse_y - content_y + scroll_y
+	target_line := max(0, int(rel_y / line_h))
+	line := 0
+	line_start := 0
+	for i in 0..<len(text) {
+		if text[i] != '\n' {
+			continue
+		}
+		if line == target_line {
+			return line_start + hit_test_text(mgr, text[line_start:i], rel_x, font, scale)
+		}
+		line += 1
+		line_start = i + 1
+	}
+	if line == target_line {
+		return line_start + hit_test_text(mgr, text[line_start:], rel_x, font, scale)
+	}
+	return len(text)
 }
 
 insert_text_at_cursor :: proc(buf: ^[dynamic]u8, cursor: ^int, text: string, multiline: bool) {

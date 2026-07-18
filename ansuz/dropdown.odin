@@ -141,11 +141,16 @@ dropdown :: proc(
 
 	// If open, register the popup for overlay rendering
 	if is_open && len(options) > 0 {
+		// Popup drawing happens after the caller has returned. The supplied slice
+		// may be backed by a caller-local array, so retain its descriptors in the
+		// frame arena instead of leaving a dangling stack reference.
+		popup_options := make([]string, len(options), mgr.frame_allocator)
+		copy(popup_options, options)
 		append(&mgr.popup_draws, Popup_Draw{
 			owner_box_index = idx,
 			kind            = .Dropdown_List,
 			dropdown_list   = Popup_Dropdown_Data{
-				options            = options,
+				options            = popup_options,
 				selected           = selected,
 				owner_id           = id,
 				font               = effective_font,

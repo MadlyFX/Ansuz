@@ -35,6 +35,7 @@ Backend :: struct {
 	// Optional clipboard hooks for desktop/web backends.
 	set_clipboard_text: proc(backend: ^Backend, text: string) -> bool,
 	get_clipboard_text: proc(backend: ^Backend, allocator: runtime.Allocator) -> string,
+	open_url:           proc(backend: ^Backend, url: string) -> bool,
 
 	// Backend-specific data
 	user_data:    rawptr,
@@ -55,6 +56,7 @@ Input_State :: struct {
 	mouse_right:        bool,
 	mouse_middle:       bool,
 	mouse_left_pressed: bool,    // went down this frame (edge-triggered)
+	mouse_right_pressed: bool,   // went down this frame (edge-triggered)
 	quit:               bool,
 
 	// Text input characters typed this frame (from OS text input events)
@@ -63,6 +65,7 @@ Input_State :: struct {
 
 	// Keyboard key-down events (reset each frame, set by backend on key press)
 	key_backspace: bool,
+	key_tab:       bool,
 	key_delete:    bool,
 	key_left:      bool,
 	key_right:     bool,
@@ -71,9 +74,13 @@ Input_State :: struct {
 	key_home:      bool,
 	key_end:       bool,
 	key_enter:     bool,
+	key_escape:    bool,
 	key_copy:      bool,
 	key_paste:     bool,
 	key_cut:       bool,
+	key_find:      bool,
+	key_find_all:  bool,
+	key_code:      i32, // normalized ASCII/special key for configurable shortcuts
 
 	// Modifier held states
 	key_shift:     bool,
@@ -81,4 +88,10 @@ Input_State :: struct {
 
 	// Mouse scroll wheel (positive = scroll up/towards user)
 	mouse_scroll_y: f32,
+
+	// Host file drop. Desktop fills this directly; browser hosts deliver the
+	// upload result through their bridge because web File objects have no path.
+	file_drag_active: bool,
+	dropped_file:     [4096]u8,
+	dropped_file_len: int,
 }

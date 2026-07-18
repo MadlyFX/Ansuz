@@ -105,6 +105,11 @@ Manager :: struct {
 	// Sequence counter for generating unique IDs within a single call site (loops)
 	seq_counter:      int,
 
+	// Tree widget nesting — current depth and, per ancestor level, whether the
+	// guide line continues past this row (that level's node has later siblings)
+	tree_depth:       int,
+	tree_continues:   [TREE_MAX_DEPTH]bool,
+
 	// Loaded fonts (index 0 = Font_Handle(1), etc.)
 	fonts:            [dynamic]Font,
 	default_font:     Font_Handle,
@@ -183,6 +188,7 @@ frame_begin :: proc(mgr: ^Manager, dt: f32 = -1) {
 	clear(&mgr.deferred_draws)
 	clear(&mgr.popup_draws)
 	mgr.seq_counter = 0
+	mgr.tree_depth = 0
 	mgr.hot_id = ID_NONE
 	mgr.scroll_wheel_candidate = ID_NONE
 	mgr.popup_consumed_scroll = false
@@ -305,8 +311,10 @@ frame_end :: proc(mgr: ^Manager) {
 	// Reset edge-triggered input events after widgets have consumed them.
 	// This ensures events set asynchronously (web/WASM) persist until processed.
 	mgr.input.mouse_left_pressed = false
+	mgr.input.mouse_right_pressed = false
 	mgr.input.text_char_len = 0
 	mgr.input.key_backspace = false
+	mgr.input.key_tab = false
 	mgr.input.key_delete = false
 	mgr.input.key_left = false
 	mgr.input.key_right = false
@@ -315,9 +323,14 @@ frame_end :: proc(mgr: ^Manager) {
 	mgr.input.key_home = false
 	mgr.input.key_end = false
 	mgr.input.key_enter = false
+	mgr.input.key_escape = false
 	mgr.input.key_copy = false
 	mgr.input.key_paste = false
 	mgr.input.key_cut = false
+	mgr.input.key_find = false
+	mgr.input.key_find_all = false
+	mgr.input.key_code = 0
+	mgr.input.dropped_file_len = 0
 	mgr.input.mouse_scroll_y = 0
 
 	// GC: remove widget states not seen for 60 frames
@@ -358,10 +371,69 @@ emit_deferred_texts :: proc(mgr: ^Manager, floating: bool) {
 			ty = cr.y + (cr.h - text_size.y) / 2
 		}
 
+		if dt.selection_end > dt.selection_start && len(dt.text) > 0 {
+			emit_text_selection(
+				mgr,
+				dt.text,
+				dt.selection_start,
+				dt.selection_end,
+				{tx, ty},
+				dt.font,
+				dt.scale,
+				dt.selection_color,
+			)
+		}
 		push_text(&mgr.draw_list, {tx, ty}, dt.text, dt.color, dt.font, eff_scale)
 	}
 	if needs_clip_reset {
 		push_clip(&mgr.draw_list, full_screen)
+	}
+}
+
+emit_text_selection :: proc(
+	mgr: ^Manager,
+	text: string,
+	selection_start, selection_end: int,
+	origin: Vec2,
+	font: Font_Handle,
+	scale: f32,
+	color: Color,
+) {
+	start := clamp(selection_start, 0, len(text))
+	end := clamp(selection_end, start, len(text))
+	if start == end {
+		return
+	}
+
+	line_h := get_line_height(mgr, font, scale)
+	line_start := 0
+	line_index := 0
+	for line_start <= len(text) {
+		line_end := len(text)
+		for i in line_start..<len(text) {
+			if text[i] == '\n' {
+				line_end = i
+				break
+			}
+		}
+
+		segment_start := max(start, line_start)
+		segment_end := min(end, line_end)
+		if segment_start < segment_end {
+			x1 := origin.x + measure_text_prefix(mgr, text[line_start:line_end], segment_start - line_start, font, scale)
+			x2 := origin.x + measure_text_prefix(mgr, text[line_start:line_end], segment_end - line_start, font, scale)
+			push_filled_rect(
+				&mgr.draw_list,
+				Rect{x1, origin.y + f32(line_index) * line_h, max(f32(1), x2 - x1), line_h},
+				color,
+			)
+		}
+
+		if line_end == len(text) {
+			break
+		}
+		line_start = line_end + 1
+		line_index += 1
 	}
 }
 
@@ -460,14 +532,21 @@ box_is_floating :: proc(mgr: ^Manager, idx: int) -> bool {
 
 // Load a TrueType font from raw TTF file data, rasterize it at the given pixel size,
 // and upload it to the backend. Backends without a font upload hook stay bitmap-only.
+// Pass antialiasing = .None for hard-edged, unantialiased glyphs.
 // Returns a Font_Handle for use with set_default_font.
 when ODIN_OS != .Freestanding {
-	load_font :: proc(mgr: ^Manager, ttf_data: []u8, pixel_size: f32, extra_codepoints: []rune = nil) -> (Font_Handle, bool) {
+	load_font :: proc(
+		mgr: ^Manager,
+		ttf_data: []u8,
+		pixel_size: f32,
+		extra_codepoints: []rune = nil,
+		antialiasing: Font_Antialiasing = .Grayscale,
+	) -> (Font_Handle, bool) {
 		if mgr.backend == nil || mgr.backend.load_font == nil {
 			return FONT_BUILTIN, false
 		}
 
-		font, ok := load_font_from_data(ttf_data, pixel_size, extra_codepoints)
+		font, ok := load_font_from_data(ttf_data, pixel_size, extra_codepoints, antialiasing)
 		if !ok { return FONT_BUILTIN, false }
 
 		handle := Font_Handle(len(mgr.fonts) + 1)

@@ -88,11 +88,16 @@ menu_button :: proc(
 	append(&mgr.widget_box_map, Widget_Box_Entry{id = id, box_index = idx})
 
 	if is_open && len(options) > 0 {
+		// Popup drawing happens after the caller has returned. The supplied slice
+		// may be backed by a caller-local array, so retain its descriptors in the
+		// frame arena instead of leaving a dangling stack reference.
+		popup_options := make([]string, len(options), mgr.frame_allocator)
+		copy(popup_options, options)
 		append(&mgr.popup_draws, Popup_Draw{
 			owner_box_index = idx,
 			kind            = .Menu_List,
 			menu_list        = Popup_Menu_Data{
-				options            = options,
+				options            = popup_options,
 				selected           = selected,
 				owner_id           = id,
 				font               = effective_font,
@@ -108,4 +113,28 @@ menu_button :: proc(
 	}
 
 	return interaction
+}
+
+HAMBURGER_ICON_SIZE :: [2]Size_Spec{Size_Spec{.Fixed, 18}, Size_Spec{.Fixed, 18}}
+
+// Three-line "hamburger" menu icon. Draw-only, like disclosure_icon; layer it
+// over a button in a stack to build a clickable menu toggle.
+hamburger_icon :: proc(
+	mgr:   ^Manager,
+	color: Color = THEME_TEXT,
+	size:  [2]Size_Spec = HAMBURGER_ICON_SIZE,
+	scale: f32 = 1,
+	loc    := #caller_location,
+) -> int {
+	idx := box(mgr, size = size, loc = loc)
+	append(
+		&mgr.deferred_draws,
+		Deferred_Draw{
+			box_index = idx,
+			kind = .Hamburger_Icon,
+			scale = scale,
+			hamburger = Deferred_Hamburger_Data{color = color},
+		},
+	)
+	return idx
 }

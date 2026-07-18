@@ -1,6 +1,7 @@
 package ansuz_backend_sdl
 
 import "core:fmt"
+import "core:math"
 import "core:strings"
 import "base:runtime"
 import SDL "vendor:sdl3"
@@ -23,6 +24,9 @@ SDL_Data :: struct {
 	window:              ^SDL.Window,
 	renderer:            ^SDL.Renderer,
 	title:               cstring,
+	pixel_density:       f32,
+	file_drag_active:    bool,
+	file_drop_completed: bool,
 	builtin_font_texture: ^SDL.Texture,  // 16x16 grid of 5x7 glyphs = 80x112 atlas
 	loaded_fonts:        [dynamic]SDL_Font,
 }
@@ -47,6 +51,7 @@ create :: proc(width: i32 = 960, height: i32 = 540, title: cstring = "ansuz") ->
 	backend.load_font    = sdl_load_font
 	backend.set_clipboard_text = sdl_set_clipboard_text
 	backend.get_clipboard_text = sdl_get_clipboard_text
+	backend.open_url = sdl_open_url
 
 	return backend
 }
@@ -64,7 +69,7 @@ sdl_init :: proc(backend: ^ansuz.Backend, width, height: i32) -> bool {
 	data.window = SDL.CreateWindow(
 		data.title,
 		width, height,
-		{.RESIZABLE},
+		{.RESIZABLE, .HIGH_PIXEL_DENSITY},
 	)
 	if data.window == nil {
 		fmt.eprintln("SDL.CreateWindow failed:", SDL.GetError())
@@ -79,6 +84,7 @@ sdl_init :: proc(backend: ^ansuz.Backend, width, height: i32) -> bool {
 
 	SDL.SetRenderVSync(data.renderer, 1)
 	SDL.SetRenderDrawBlendMode(data.renderer, SDL.BLENDMODE_BLEND)
+	sdl_sync_window_metrics(backend)
 
 	// Create font atlas texture (16 cols x 16 rows of 6x9 cells = 96x144 pixels)
 	ATLAS_W :: 16 * ansuz.FONT_CHAR_WIDTH    // 96
@@ -120,6 +126,43 @@ sdl_init :: proc(backend: ^ansuz.Backend, width, height: i32) -> bool {
 	_ = SDL.StartTextInput(data.window)
 
 	return true
+}
+
+// Keep layout and input in window coordinates while rendering into every
+// physical pixel of a high-density back buffer. Without this, Windows may
+// scale a low-resolution surface after SDL presents it, softening or aliasing
+// text and one-pixel UI details.
+sdl_sync_window_metrics :: proc(backend: ^ansuz.Backend) {
+	data := cast(^SDL_Data)backend.user_data
+	if data.window == nil || data.renderer == nil {
+		return
+	}
+
+	window_w, window_h: i32
+	output_w, output_h: i32
+	if !SDL.GetWindowSize(data.window, &window_w, &window_h) || window_w <= 0 || window_h <= 0 {
+		return
+	}
+
+	backend.width = window_w
+	backend.height = window_h
+	data.pixel_density = 1
+	if SDL.GetRenderOutputSize(data.renderer, &output_w, &output_h) && output_w > 0 && output_h > 0 {
+		scale_x := f32(output_w) / f32(window_w)
+		scale_y := f32(output_h) / f32(window_h)
+		_ = SDL.SetRenderScale(data.renderer, scale_x, scale_y)
+		data.pixel_density = max(scale_x, scale_y)
+	}
+}
+
+// The desktop host uses this to rasterize its font atlas near the physical
+// size at which glyphs will be displayed.
+pixel_density :: proc(backend: ^ansuz.Backend) -> f32 {
+	data := cast(^SDL_Data)backend.user_data
+	if data == nil || data.pixel_density <= 0 {
+		return 1
+	}
+	return data.pixel_density
 }
 
 // Upload a TTF grayscale coverage atlas as an SDL texture for antialiased rendering.
@@ -391,6 +434,12 @@ sdl_execute :: proc(backend: ^ansuz.Backend, cmd: ansuz.Draw_Command) {
 			SDL.SetTextureColorMod(font.texture, c.color.r, c.color.g, c.color.b)
 			SDL.SetTextureAlphaMod(font.texture, c.color.a)
 
+			// Glyph advances are fractional, so unsnapped quads land between
+			// pixels and linear filtering smears the atlas texels, softening
+			// text that was rasterized for 1:1 display. Snap each glyph
+			// origin to a physical pixel (density-aware for high-DPI).
+			px_density := data.pixel_density if data.pixel_density > 0 else 1
+
 			cursor_x := f32(c.pos.x)
 			cursor_y := f32(c.pos.y)
 			start_x := cursor_x
@@ -414,8 +463,8 @@ sdl_execute :: proc(backend: ^ansuz.Backend, cmd: ansuz.Draw_Command) {
 					f32(g.atlas_w), f32(g.atlas_h),
 				}
 				dst := SDL.FRect{
-					cursor_x + g.x_offset * scale,
-					cursor_y + (font.ascent + g.y_offset) * scale,
+					math.round((cursor_x + g.x_offset * scale) * px_density) / px_density,
+					math.round((cursor_y + (font.ascent + g.y_offset) * scale) * px_density) / px_density,
 					(g.x_offset2 - g.x_offset) * scale,
 					(g.y_offset2 - g.y_offset) * scale,
 				}
@@ -510,11 +559,19 @@ sdl_measure_text :: proc(backend: ^ansuz.Backend, text: string, font: ansuz.Font
 sdl_poll_events :: proc(backend: ^ansuz.Backend, input: ^ansuz.Input_State) -> bool {
 	data := cast(^SDL_Data)backend.user_data
 	quit := false
+	// Keep the overlay visible for the frame that receives DROP_FILE, even when
+	// SDL queues DROP_COMPLETE immediately after it. Clear it on the next poll.
+	if data.file_drop_completed {
+		data.file_drag_active = false
+		data.file_drop_completed = false
+	}
 
 	// Reset per-frame edge-triggered input events
 	input.mouse_left_pressed = false
+	input.mouse_right_pressed = false
 	input.text_char_len = 0
 	input.key_backspace = false
+	input.key_tab = false
 	input.key_delete = false
 	input.key_left = false
 	input.key_right = false
@@ -523,9 +580,14 @@ sdl_poll_events :: proc(backend: ^ansuz.Backend, input: ^ansuz.Input_State) -> b
 	input.key_home = false
 	input.key_end = false
 	input.key_enter = false
+	input.key_escape = false
 	input.key_copy = false
 	input.key_paste = false
 	input.key_cut = false
+	input.key_find = false
+	input.key_find_all = false
+	input.key_code = 0
+	input.dropped_file_len = 0
 	input.mouse_scroll_y = 0
 
 	for e: SDL.Event; SDL.PollEvent(&e); /**/ {
@@ -533,9 +595,8 @@ sdl_poll_events :: proc(backend: ^ansuz.Backend, input: ^ansuz.Input_State) -> b
 		case .QUIT:
 			quit = true
 
-		case .WINDOW_RESIZED, .WINDOW_PIXEL_SIZE_CHANGED:
-			backend.width = e.window.data1
-			backend.height = e.window.data2
+		case .WINDOW_RESIZED, .WINDOW_PIXEL_SIZE_CHANGED, .WINDOW_DISPLAY_SCALE_CHANGED:
+			sdl_sync_window_metrics(backend)
 
 		case .MOUSE_MOTION:
 			input.mouse_x = e.motion.x
@@ -546,7 +607,9 @@ sdl_poll_events :: proc(backend: ^ansuz.Backend, input: ^ansuz.Input_State) -> b
 			case SDL.BUTTON_LEFT:
 				input.mouse_left = true
 				input.mouse_left_pressed = true
-			case SDL.BUTTON_RIGHT:  input.mouse_right = true
+			case SDL.BUTTON_RIGHT:
+				input.mouse_right = true
+				input.mouse_right_pressed = true
 			case SDL.BUTTON_MIDDLE: input.mouse_middle = true
 			}
 
@@ -573,11 +636,18 @@ sdl_poll_events :: proc(backend: ^ansuz.Backend, input: ^ansuz.Input_State) -> b
 
 		case .KEY_DOWN:
 			ctrl_down := input.key_ctrl || .LCTRL in e.key.mod || .RCTRL in e.key.mod
+			key_value := i32(e.key.key)
+			if key_value >= 'a' && key_value <= 'z' {
+				key_value -= 'a' - 'A'
+			}
+			input.key_code = key_value
 			#partial switch e.key.scancode {
 			case .ESCAPE:
-				quit = true
+				input.key_escape = true
 			case .BACKSPACE:
 				input.key_backspace = true
+			case .TAB:
+				input.key_tab = true
 			case .DELETE:
 				input.key_delete = true
 			case .LEFT:
@@ -600,6 +670,11 @@ sdl_poll_events :: proc(backend: ^ansuz.Backend, input: ^ansuz.Input_State) -> b
 				if ctrl_down { input.key_paste = true }
 			case .X:
 				if ctrl_down { input.key_cut = true }
+			case .F:
+				if ctrl_down {
+					input.key_find = true
+					input.key_find_all = input.key_shift || .LSHIFT in e.key.mod || .RSHIFT in e.key.mod
+				}
 			case .LSHIFT, .RSHIFT:
 				input.key_shift = true
 			case .LCTRL, .RCTRL:
@@ -613,8 +688,33 @@ sdl_poll_events :: proc(backend: ^ansuz.Backend, input: ^ansuz.Input_State) -> b
 			case .LCTRL, .RCTRL:
 				input.key_ctrl = false
 			}
+
+		case .DROP_BEGIN, .DROP_POSITION:
+			data.file_drag_active = true
+
+		case .DROP_FILE:
+			data.file_drag_active = true
+			if e.drop.data != nil {
+				bytes := transmute([^]u8)e.drop.data
+				for i in 0..<len(input.dropped_file) {
+					if bytes[i] == 0 { break }
+					input.dropped_file[input.dropped_file_len] = bytes[i]
+					input.dropped_file_len += 1
+				}
+				// SDL3 owns event payload memory and releases it during later
+				// event polling. SDL2 required callers to free dropped paths,
+				// but doing that with SDL3 double-frees this pointer.
+			}
+
+		case .DROP_COMPLETE:
+			if input.dropped_file_len > 0 {
+				data.file_drop_completed = true
+			} else {
+				data.file_drag_active = false
+			}
 		}
 	}
+	input.file_drag_active = data.file_drag_active
 
 	return quit
 }
@@ -636,4 +736,12 @@ sdl_get_clipboard_text :: proc(backend: ^ansuz.Backend, allocator: runtime.Alloc
 
 	n := int(SDL.strlen(cstring(ptr)))
 	return strings.clone(string(ptr[:n]), allocator)
+}
+
+sdl_open_url :: proc(backend: ^ansuz.Backend, url: string) -> bool {
+	c_url, err := strings.clone_to_cstring(url, context.temp_allocator)
+	if err != nil {
+		return false
+	}
+	return SDL.OpenURL(c_url)
 }

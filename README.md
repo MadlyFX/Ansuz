@@ -4,7 +4,7 @@ Ansuz is a cross-platform UI framework written in Odin.
 
 It offers an immediate-mode authoring style with a retained internal state manager, so you can write straightforward per-frame UI code while the framework tracks widget state, interaction, and transitions across frames.
 
-![Demo image](demo.png?v=2)
+![Demo image](demo.png?v=4)
 
 
 ## Status
@@ -25,10 +25,13 @@ Ansuz is still in development, the syntax especially is still quite inconsistant
   - Checkbox
   - Slider
   - Dropdown
-  - Text input (single-line and multi-line)
+  - Text input (single-line and multi-line) with mouse/keyboard text selection and clipboard support
   - Image widget
   - Collapsible header
+  - Tree (explorer-style disclosure nodes, leaf rows, and indent guide lines)
+  - Disclosure and hamburger icons
 - Popup rendering for dropdowns and menu lists with scroll support
+- High-DPI aware rendering on the SDL3 and WebGL backends (layout and input stay in logical pixels while rendering fills every physical pixel)
 - Animation support with easing functions and optional host-provided delta time
 - Font support:
   - Built-in bitmap font
@@ -227,9 +230,10 @@ A backend provides function pointers for:
 - Per-frame begin/end hooks
 - Draw command execution
 - Text measurement
-- Event polling
+- Event polling (mouse, keyboard, scroll wheel, and host file drop where supported)
 - Font upload
 - Clipboard access for text input where supported
+- URL opening (`open_url`) where supported
 
 This allows the same UI code to run on desktop, embedded-style software pipelines, and web targets with backend-specific rendering/event handling.
 
@@ -238,6 +242,8 @@ This allows the same UI code to run on desktop, embedded-style software pipeline
 - Omit `font` to use the manager's default font. The built-in bitmap font is the initial default.
 - Use `FONT_BUILTIN` as an explicit per-widget override, even after setting a TTF default.
 - Use `load_font` and `set_default_font` to change the manager default for all widgets.
+- For the sharpest text, rasterize atlases at the size they will be displayed: `widget scale x FONT_GLYPH_HEIGHT x pixel density` (see the demos; the SDL and WebGL backends expose a `pixel_density` helper). Glyphs are drawn snapped to physical pixels.
+- Pass `antialiasing = .None` to `load_font` for hard-edged, unantialiased glyphs (e-ink, low-density LCDs, pixel-art styling). The default is `.Grayscale`.
 - Demos use OpenSans for anti-aliased text rendering.
 
 Text colors use a plain `Color` override, while interactive widgets accept a
@@ -263,6 +269,8 @@ Core widget modules currently include:
 - `textinput.odin`
 - `scroll.odin`
 - `image.odin`
+- `collapsible.odin`
+- `tree.odin`
 
 Additional supporting systems include animations/easing, transitions, interaction state, and reactive value plumbing.
 

@@ -9,6 +9,7 @@ Deferred_Draw_Kind :: enum {
 	Checkmark,
 	Dropdown_Arrow,
 	Disclosure_Icon,
+	Hamburger_Icon,
 	Image,
 	Text_Cursor,
 	Scrollbar,
@@ -31,6 +32,10 @@ Deferred_Dropdown_Data :: struct {
 Deferred_Disclosure_Data :: struct {
 	expanded: bool,
 	color:    Color,
+}
+
+Deferred_Hamburger_Data :: struct {
+	color: Color,
 }
 
 Deferred_Image_Data :: struct {
@@ -63,6 +68,7 @@ Deferred_Draw :: struct {
 	checkmark:   Deferred_Checkmark_Data,
 	dropdown:    Deferred_Dropdown_Data,
 	disclosure:  Deferred_Disclosure_Data,
+	hamburger:   Deferred_Hamburger_Data,
 	image:       Deferred_Image_Data,
 	text_cursor: Deferred_Text_Cursor_Data,
 	scrollbar:   Deferred_Scrollbar_Data,
@@ -148,6 +154,9 @@ emit_deferred_draws :: proc(mgr: ^Manager, floating: bool = false) {
 		case .Disclosure_Icon:
 			emit_disclosure_icon(mgr, r, dd.disclosure, s)
 
+		case .Hamburger_Icon:
+			emit_hamburger_icon(mgr, r, dd.hamburger, s)
+
 		case .Image:
 			emit_image_draw(mgr, r, dd.image)
 
@@ -182,6 +191,24 @@ emit_disclosure_icon :: proc(mgr: ^Manager, rect: Rect, data: Deferred_Disclosur
 		p3 := Vec2{cx - s * 0.4, cy + s}
 		push_line(&mgr.draw_list, p1, p2, data.color, thickness)
 		push_line(&mgr.draw_list, p2, p3, data.color, thickness)
+	}
+}
+
+emit_hamburger_icon :: proc(mgr: ^Manager, rect: Rect, data: Deferred_Hamburger_Data, scale: f32 = 1.0) {
+	cx := rect.x + rect.w * 0.5
+	cy := rect.y + rect.h * 0.5
+	half_width := min(rect.w, rect.h) * 0.22
+	line_gap := min(rect.w, rect.h) * 0.15
+	thickness := max(f32(1.5), 2 * scale)
+	offsets := [?]f32{-line_gap, 0, line_gap}
+	for offset in offsets {
+		push_line(
+			&mgr.draw_list,
+			Vec2{cx - half_width, cy + offset},
+			Vec2{cx + half_width, cy + offset},
+			data.color,
+			thickness,
+		)
 	}
 }
 

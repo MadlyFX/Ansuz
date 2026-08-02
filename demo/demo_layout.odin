@@ -4,8 +4,7 @@ import ansuz "../ansuz"
 import backend "../backend_sdl"
 import "core:fmt"
 import "core:image"
-import "core:image/png"
-import "core:strings"
+import _ "core:image/png"
 import "core:time"
 
 img: ^image.Image
@@ -38,8 +37,8 @@ main :: proc() {
 		ansuz.set_default_font(&mgr, opensans)
 		ansuz.DEFAULT_FONT_SCALE = DEMO_FONT_SCALE
 	}
-	opensans_bold, bold_font_ok := ansuz.load_font(&mgr, ansuz.OPENSANS_BOLD, body_px)
-	opensans_heading, heading_font_ok := ansuz.load_font(&mgr, ansuz.OPENSANS_BOLD, heading_px)
+	opensans_bold, _ := ansuz.load_font(&mgr, ansuz.OPENSANS_BOLD, body_px)
+	opensans_heading, _ := ansuz.load_font(&mgr, ansuz.OPENSANS_BOLD, heading_px)
 
 	img, img_err = image.load_from_file("demo/logo.png")
 	if img_err != nil {
@@ -214,7 +213,7 @@ main :: proc() {
 			&mgr,
 			&selected_item,
 			options[:],
-			size = ansuz.FIXED_200_30,
+			size = {ansuz.size_fixed(200), ansuz.size_fixed(30)},
 			font = opensans,
 			text_color = ansuz.COLOR_WHITE,
 			popup_color = ansuz.Color{34, 38, 46, 245},
@@ -231,7 +230,7 @@ main :: proc() {
 			"Actions",
 			&menu_selected,
 			menu_options[:],
-			size = ansuz.FIXED_200_30,
+			size = {ansuz.size_fixed(200), ansuz.size_fixed(30)},
 			font = opensans,
 			text_color = ansuz.COLOR_WHITE,
 			popup_color = ansuz.Color{32, 35, 42, 245},

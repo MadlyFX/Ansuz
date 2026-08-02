@@ -1,5 +1,15 @@
 package ansuz
 
+// --- Collapsible Header ---
+// A header row that expands/collapses a section, binding through a ^bool.
+// Returns (open, interaction) like tree_node_begin, so sections read as:
+//
+//     open, _ := collapsible_header(mgr, "Details", &expanded)
+//     if open { ...section content... }
+//
+// colors slots: bg = collapsed fill, hover/press = state fills,
+// focus = expanded fill (fg is unused; borders come from border_color params).
+
 COLLAPSIBLE_HEADER_HEIGHT :: f32(34)
 COLLAPSIBLE_HEADER_ICON_SIZE :: f32(18)
 COLLAPSIBLE_HEADER_SIZE :: [2]Size_Spec{SIZE_GROW, Size_Spec{.Fixed, COLLAPSIBLE_HEADER_HEIGHT}}
@@ -8,11 +18,6 @@ COLLAPSIBLE_ICON_SIZE :: [2]Size_Spec{
 	Size_Spec{.Fixed, COLLAPSIBLE_HEADER_ICON_SIZE},
 }
 
-THEME_COLLAPSIBLE_BG :: Color{40, 43, 48, 255}
-THEME_COLLAPSIBLE_BG_HOVER :: Color{49, 55, 60, 255}
-THEME_COLLAPSIBLE_BG_PRESS :: Color{45, 48, 55, 255}
-THEME_COLLAPSIBLE_BG_EXPANDED :: Color{49, 55, 60, 255}
-
 collapsible_header :: proc(
 	mgr: ^Manager,
 	text: string,
@@ -20,9 +25,8 @@ collapsible_header :: proc(
 	size: [2]Size_Spec = COLLAPSIBLE_HEADER_SIZE,
 	padding: [4]f32 = {2, 4, 2, 4},
 	gap: f32 = 4,
-	color: Widget_Color = Widget_Color{
+	colors: Widget_Color = Widget_Color{
 		bg    = THEME_COLLAPSIBLE_BG,
-		fg    = THEME_BORDER,
 		hover = THEME_COLLAPSIBLE_BG_HOVER,
 		press = THEME_COLLAPSIBLE_BG_PRESS,
 		focus = THEME_COLLAPSIBLE_BG_EXPANDED,
@@ -42,7 +46,7 @@ collapsible_header :: proc(
 	toggle_on_icon_only: bool = false,
 	toggled: ^bool = nil,
 	loc := #caller_location,
-) -> Interaction {
+) -> (open: bool, interaction: Interaction) {
 	effective_font := resolve_font(mgr, font)
 	id := id_from_ptr_loc(&mgr.id_stack, expanded, loc)
 	icon_id := Widget_ID(hash_string("disclosure-icon", u64(id)))
@@ -65,7 +69,7 @@ collapsible_header :: proc(
 		prev_rect = state.prev_rect
 	}
 
-	interaction := compute_interaction(mgr, id, prev_rect)
+	interaction = compute_interaction(mgr, id, prev_rect)
 	if (toggle_on_icon_only && .Clicked in icon_interaction) || (!toggle_on_icon_only && .Clicked in interaction) {
 		expanded^ = !expanded^
 		if toggled != nil {
@@ -77,12 +81,12 @@ collapsible_header :: proc(
 	hover_t := get_hover_t(mgr, id, .Hovered in interaction)
 	press_t := get_press_t(mgr, id, .Pressed in interaction)
 	focus_t := get_focus_t(mgr, id, .Focused in interaction)
-	base_bg := color.focus if is_expanded else color.bg
+	base_bg := colors.focus if is_expanded else colors.bg
 	bg := blend_interaction_color(
 		base_bg,
-		color.hover,
-		color.press,
-		color.focus,
+		colors.hover,
+		colors.press,
+		colors.focus,
 		hover_t,
 		press_t,
 		focus_t,
@@ -141,7 +145,8 @@ collapsible_header :: proc(
 	track_value(mgr, id, expanded)
 	append(&mgr.widget_box_map, Widget_Box_Entry{id = id, box_index = idx})
 
-	return interaction
+	open = is_expanded
+	return
 }
 
 disclosure_icon :: proc(

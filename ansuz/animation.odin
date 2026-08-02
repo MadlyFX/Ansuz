@@ -4,11 +4,9 @@ import "core:time"
 
 // --- Animation / Tween System ---
 // The manager owns all active animations. Each animation smoothly interpolates
-// a value from its current state to a target over a duration with easing.
-//
-// Animations integrate with the reactive tracking system: while an animation
-// is active on a widget, it writes through the user's pointer each frame,
-// and the override_active flag prevents the user's own writes from fighting it.
+// a value from its current state to a target over a duration with easing,
+// writing through the user's pointer each frame. Starting a new animation on
+// a value that is already animating replaces the running animation.
 //
 // Usage:
 //   animate_f32(&mgr, &my_value, target = 1.0, duration = 0.3)

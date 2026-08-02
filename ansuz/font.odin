@@ -9,11 +9,6 @@ import "core:unicode/utf8"
 // Scale normalization maps widget scale values (designed for the bitmap font) to
 // equivalent visual sizes for TTF fonts.
 
-Font_Kind :: enum {
-	Builtin,   // Hardcoded 5x7 pixel bitmap font (always available)
-	Atlas,     // Pre-rasterized TrueType font atlas
-}
-
 Font_Antialiasing :: enum {
 	None,
 	Grayscale,
@@ -36,7 +31,6 @@ Font_Glyph_Info :: struct {
 }
 
 Font :: struct {
-	kind:          Font_Kind,
 	pixel_size:    f32,           // Size the font was rasterized at
 	atlas_width:   i32,
 	atlas_height:  i32,
@@ -676,18 +670,6 @@ measure_text_builtin :: proc(text: string, scale: f32 = 2) -> Vec2 {
 	return {
 		f32(max_cols) * f32(FONT_CHAR_WIDTH) * s,
 		f32(lines) * f32(FONT_CHAR_HEIGHT) * s,
-	}
-}
-
-// Get the font bitmap data for a character (5 bytes, column-major).
-font_glyph :: proc(ch: u8) -> [5]u8 {
-	idx := int(ch) * 5
-	return {
-		FONT_5X7_DATA[idx + 0],
-		FONT_5X7_DATA[idx + 1],
-		FONT_5X7_DATA[idx + 2],
-		FONT_5X7_DATA[idx + 3],
-		FONT_5X7_DATA[idx + 4],
 	}
 }
 

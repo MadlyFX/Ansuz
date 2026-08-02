@@ -174,7 +174,7 @@ resolve_size_spec :: proc(spec: Size_Spec, available: f32) -> f32 {
 		return spec.value
 	case .Percent:
 		return available * spec.value
-	case .Fit, .Auto:
+	case .Fit:
 		return 0 // Will be determined later or by content
 	case .Grow:
 		return 0 // Resolved in the grow pass
@@ -208,10 +208,6 @@ set_rect_dim :: proc(r: ^Rect, axis: int, val: f32) {
 	} else {
 		r.h = val
 	}
-}
-
-get_rect_pos :: proc(r: Rect, axis: int) -> f32 {
-	return r.x if axis == 0 else r.y
 }
 
 set_rect_pos :: proc(r: ^Rect, axis: int, val: f32) {

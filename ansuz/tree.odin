@@ -31,11 +31,6 @@ TREE_DOC_ICON_WIDTH  :: f32(9)
 TREE_DOC_ICON_HEIGHT :: f32(11)
 TREE_MAX_DEPTH       :: 16
 
-THEME_TREE_ROW_HOVER    :: Color{60, 63, 70, 255}
-THEME_TREE_ROW_PRESS    :: Color{45, 48, 55, 255}
-THEME_TREE_ROW_SELECTED :: Color{55, 80, 120, 255}
-THEME_TREE_GUIDE        :: Color{80, 83, 90, 255}
-
 TREE_ROW_SIZE :: [2]Size_Spec{SIZE_GROW, Size_Spec{.Fixed, TREE_ROW_HEIGHT}}
 
 // Rows sit directly on the surrounding container, so the resting background is
@@ -101,7 +96,7 @@ tree_node_begin :: proc(
 	is_last:       bool = false,
 	toggle_on_row: bool = false,
 	row_height: f32 = TREE_ROW_HEIGHT,
-	color: Widget_Color = THEME_TREE_ROW_COLOR,
+	colors: Widget_Color = THEME_TREE_ROW_COLOR,
 	text_color:          Color = THEME_TEXT,
 	selected_text_color: Color = THEME_TEXT,
 	icon_color:          Color = THEME_TEXT_DIM,
@@ -163,7 +158,7 @@ tree_node_begin :: proc(
 		interaction,
 		size = {SIZE_GROW, size_fixed(row_height - 2)},
 		padding = {1, 7, 1, 5},
-		color = color,
+		colors = colors,
 		text_color = selected_text_color if selected else text_color,
 		font = font,
 		scale = scale,
@@ -192,7 +187,7 @@ tree_leaf :: proc(
 	is_last:  bool = false,
 	icon: Tree_Icon = .None,
 	row_height: f32 = TREE_ROW_HEIGHT,
-	color: Widget_Color = THEME_TREE_ROW_COLOR,
+	colors: Widget_Color = THEME_TREE_ROW_COLOR,
 	text_color:          Color = THEME_TEXT,
 	selected_text_color: Color = THEME_TEXT,
 	icon_color:          Color = THEME_TEXT_DIM,
@@ -234,7 +229,7 @@ tree_leaf :: proc(
 		interaction,
 		size = {SIZE_GROW, size_fixed(row_height - 2)},
 		padding = {1, 7, 1, 7},
-		color = color,
+		colors = colors,
 		text_color = selected_text_color if selected else text_color,
 		font = font,
 		scale = scale,
@@ -252,7 +247,7 @@ tree_row :: proc(
 	selected: bool = false,
 	size:    [2]Size_Spec = TREE_ROW_SIZE,
 	padding: [4]f32 = {2, 7, 2, 7},
-	color: Widget_Color = THEME_TREE_ROW_COLOR,
+	colors: Widget_Color = THEME_TREE_ROW_COLOR,
 	text_color: Color = THEME_TEXT,
 	font:  Font_Handle = FONT_DEFAULT,
 	scale: f32 = DEFAULT_FONT_SCALE,
@@ -266,7 +261,7 @@ tree_row :: proc(
 	}
 	interaction := compute_interaction(mgr, id, prev_rect)
 
-	tree_row_box(mgr, id, text, selected, interaction, size, padding, color, text_color, font, scale)
+	tree_row_box(mgr, id, text, selected, interaction, size, padding, colors, text_color, font, scale)
 	return interaction
 }
 
@@ -280,7 +275,7 @@ tree_row_box :: proc(
 	interaction: Interaction,
 	size:    [2]Size_Spec,
 	padding: [4]f32,
-	color: Widget_Color,
+	colors: Widget_Color,
 	text_color: Color,
 	font:  Font_Handle,
 	scale: f32,
@@ -290,8 +285,8 @@ tree_row_box :: proc(
 	hover_t := get_hover_t(mgr, id, .Hovered in interaction)
 	press_t := get_press_t(mgr, id, .Pressed in interaction)
 	focus_t := get_focus_t(mgr, id, .Focused in interaction)
-	base_bg := color.focus if selected else color.bg
-	bg := blend_interaction_color(base_bg, color.hover, color.press, color.focus, hover_t, press_t, focus_t)
+	base_bg := colors.focus if selected else colors.bg
+	bg := blend_interaction_color(base_bg, colors.hover, colors.press, colors.focus, hover_t, press_t, focus_t)
 
 	idx := push_box(mgr, id)
 	b := &mgr.boxes[idx]

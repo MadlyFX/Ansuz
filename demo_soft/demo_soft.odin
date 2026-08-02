@@ -225,7 +225,7 @@ main :: proc() {
 		}
 
 		ansuz.stack_begin(&mgr, size = {ansuz.SIZE_GROW, ansuz.SIZE_GROW})
-		scroll_id := ansuz.scroll_begin(&mgr, gap = 14, size = {ansuz.SIZE_GROW, ansuz.SIZE_GROW}, padding = {20, 24, 20, 24})
+		ansuz.scroll_begin(&mgr, gap = 14, size = {ansuz.SIZE_GROW, ansuz.SIZE_GROW}, padding = {20, 24, 20, 24})
 		preview_color := ansuz.Color{u8(r_val * 255), u8(g_val * 255), u8(b_val * 255), 255}//Controlled by sliders below
 		ansuz.heading(&mgr, "Ansuz Demo", font = ansuz.FONT_BUILTIN, scale=2, padding={0, 0, 0, header_anim_val}, color = preview_color)
 		ansuz.label(&mgr, "A cross-platform UI framework in Odin", color = ansuz.THEME_TEXT_DIM, font=ansuz.FONT_BUILTIN, padding={-15, 2, 20, 20})
@@ -269,7 +269,7 @@ main :: proc() {
 
 		ansuz.flex_begin(&mgr, axis = .Vertical, gap = 6, size = {ansuz.SIZE_FIT, ansuz.SIZE_FIT})
 		ansuz.label(&mgr, "Dropdown", color = ansuz.COLOR_WHITE, font=ansuz.FONT_BUILTIN)
-		ansuz.dropdown(&mgr, &selected_item, options[:], size = ansuz.GROW_FIXED_30)
+		ansuz.dropdown(&mgr, &selected_item, options[:], size = {ansuz.SIZE_GROW, ansuz.size_fixed(30)})
 		ansuz.label(&mgr, fmt.tprintf("Selected: %s", options[selected_item]), color = ansuz.THEME_TEXT_DIM, font=ansuz.FONT_BUILTIN)
 		ansuz.flex_end(&mgr)
 
@@ -282,7 +282,7 @@ main :: proc() {
 			"Actions",
 			&menu_selected,
 			menu_options[:],
-			size = ansuz.FIXED_200_30,
+			size = {ansuz.size_fixed(200), ansuz.size_fixed(30)},
 			scale = 0.5,
 			font = ansuz.FONT_BUILTIN,
 			text_color = ansuz.COLOR_WHITE,

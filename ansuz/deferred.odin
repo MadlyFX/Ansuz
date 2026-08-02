@@ -68,17 +68,18 @@ Deferred_Text_Cursor_Data :: struct {
 }
 
 Deferred_Scrollbar_Data :: struct {
-	axis:     Axis,
-	offset:   f32,
-	content:  f32,
-	viewport: f32,
-	width:    f32,
-	inset:    f32,
-	// bg is the track, fg the thumb; hover and press are the thumb's states under
-	// the pointer (see scroll_begin, which does the hit testing).
-	color:    Widget_Color,
-	hovered:  bool,
-	active:   bool,
+	axis:               Axis,
+	offset:             f32,
+	content:            f32,
+	viewport:           f32,
+	width:              f32,
+	inset:              f32,
+	track_color:        Color,
+	thumb_color:        Color,
+	thumb_hover_color:  Color,
+	thumb_active_color: Color,
+	hovered:            bool,
+	active:             bool,
 }
 
 Deferred_Draw :: struct {
@@ -94,7 +95,7 @@ Deferred_Draw :: struct {
 	image:       Deferred_Image_Data,
 	text_cursor: Deferred_Text_Cursor_Data,
 	scrollbar:   Deferred_Scrollbar_Data,
-	color:       Widget_Color,
+	colors:      Widget_Color,
 }
 
 // --- Popup Overlay System ---
@@ -118,6 +119,7 @@ Popup_Dropdown_Data :: struct {
 	item_hover_color:   Color,
 	selected_color:     Color,
 	max_popup_height:   f32,
+	corner_radius:      f32,
 }
 
 Popup_Menu_Data :: struct {
@@ -132,6 +134,7 @@ Popup_Menu_Data :: struct {
 	popup_color:        Color,
 	popup_border_color: Color,
 	item_hover_color:   Color,
+	corner_radius:      f32,
 }
 
 Popup_Draw :: struct {
@@ -165,13 +168,13 @@ emit_deferred_draws :: proc(mgr: ^Manager, floating: bool = false) {
 
 		switch dd.kind {
 		case .Slider:
-			emit_slider_draw(mgr, r, dd.slider, s, dd.color)
+			emit_slider_draw(mgr, r, dd.slider, s, dd.colors)
 
 		case .Checkmark:
 			emit_checkmark_draw(mgr, r, dd.checkmark, s)
 
 		case .Dropdown_Arrow:
-			emit_dropdown_arrow(mgr, r, dd.dropdown)
+			emit_dropdown_arrow(mgr, r, dd.dropdown, s)
 
 		case .Disclosure_Icon:
 			emit_disclosure_icon(mgr, r, dd.disclosure, s)
@@ -281,7 +284,7 @@ emit_image_draw :: proc(mgr: ^Manager, rect: Rect, data: Deferred_Image_Data) {
 	}))
 }
 
-emit_slider_draw :: proc(mgr: ^Manager, rect: Rect, data: Deferred_Slider_Data, scale: f32 = 1.0, color: Widget_Color) {
+emit_slider_draw :: proc(mgr: ^Manager, rect: Rect, data: Deferred_Slider_Data, scale: f32, colors: Widget_Color) {
 	track_h  := SLIDER_TRACK_HEIGHT * scale
 	thumb_w  := SLIDER_THUMB_WIDTH * scale
 	thumb_h  := SLIDER_THUMB_HEIGHT * scale
@@ -291,14 +294,14 @@ emit_slider_draw :: proc(mgr: ^Manager, rect: Rect, data: Deferred_Slider_Data, 
 	// Track background
 	track_y := rect.y + (rect.h - track_h) / 2
 	track_rect := Rect{rect.x + pad, track_y, rect.w - pad * 2, track_h}
-	push_filled_rect(&mgr.draw_list, track_rect, color.bg, radius)
+	push_filled_rect(&mgr.draw_list, track_rect, colors.bg, radius)
 
 	// Fill (left of thumb)
 	usable_w := rect.w - thumb_w
 	thumb_x := rect.x + thumb_w / 2 + usable_w * data.t - thumb_w / 2
 
 	if data.t > 0 {
-		fill_color := color.hover if .Hovered in data.interaction else color.fg
+		fill_color := colors.hover if .Hovered in data.interaction else colors.fg
 		fill_w := (thumb_x + thumb_w / 2) - (rect.x + pad)
 		if fill_w > 0 {
 			fill_rect := Rect{rect.x + pad, track_y, fill_w, track_h}
@@ -307,7 +310,7 @@ emit_slider_draw :: proc(mgr: ^Manager, rect: Rect, data: Deferred_Slider_Data, 
 	}
 
 	// Thumb
-	thumb_color := color.press if .Pressed in data.interaction else color.focus
+	thumb_color := colors.press if .Pressed in data.interaction else colors.focus
 	thumb_y := rect.y + (rect.h - thumb_h) / 2
 	thumb_rect := Rect{thumb_x, thumb_y, thumb_w, thumb_h}
 	push_filled_rect(&mgr.draw_list, thumb_rect, thumb_color, radius + 1)
@@ -330,26 +333,28 @@ emit_checkmark_draw :: proc(mgr: ^Manager, rect: Rect, data: Deferred_Checkmark_
 	push_line(&mgr.draw_list, p2, p3, data.color, thickness)
 }
 
-emit_dropdown_arrow :: proc(mgr: ^Manager, rect: Rect, data: Deferred_Dropdown_Data) {
-	// Draw a small triangle arrow on the right side of the dropdown
-	arrow_x := rect.x + rect.w - 20
+emit_dropdown_arrow :: proc(mgr: ^Manager, rect: Rect, data: Deferred_Dropdown_Data, scale: f32 = 1.0) {
+	// Draw a small triangle arrow on the right side of the dropdown,
+	// scaled with the widget so it holds its proportions at any font scale.
+	arrow_x := rect.x + rect.w - 20 * scale
 	arrow_y := rect.y + rect.h / 2
-	s := f32(4)
+	s := 4 * scale
+	thickness := max(1, 2 * scale)
 
 	if data.is_open {
 		// Up arrow  ^
 		p1 := Vec2{arrow_x - s, arrow_y + s * 0.5}
 		p2 := Vec2{arrow_x,     arrow_y - s * 0.5}
 		p3 := Vec2{arrow_x + s, arrow_y + s * 0.5}
-		push_line(&mgr.draw_list, p1, p2, data.color, 2)
-		push_line(&mgr.draw_list, p2, p3, data.color, 2)
+		push_line(&mgr.draw_list, p1, p2, data.color, thickness)
+		push_line(&mgr.draw_list, p2, p3, data.color, thickness)
 	} else {
 		// Down arrow  v
 		p1 := Vec2{arrow_x - s, arrow_y - s * 0.5}
 		p2 := Vec2{arrow_x,     arrow_y + s * 0.5}
 		p3 := Vec2{arrow_x + s, arrow_y - s * 0.5}
-		push_line(&mgr.draw_list, p1, p2, data.color, 2)
-		push_line(&mgr.draw_list, p2, p3, data.color, 2)
+		push_line(&mgr.draw_list, p1, p2, data.color, thickness)
+		push_line(&mgr.draw_list, p2, p3, data.color, thickness)
 	}
 }
 
@@ -378,9 +383,13 @@ emit_dropdown_list :: proc(mgr: ^Manager, anchor: Rect, data: Popup_Dropdown_Dat
 		scroll_offset = offset^
 	}
 
-	// Background
-	push_filled_rect(&mgr.draw_list, list_rect, data.popup_color, 0)
-	push_rect_outline(&mgr.draw_list, list_rect, data.popup_border_color, 1, 0)
+	// Soft drop shadow, then background
+	radius := data.corner_radius
+	shadow_rect := rect_expand(list_rect, 1)
+	shadow_rect.y += 3
+	push_filled_rect(&mgr.draw_list, shadow_rect, THEME_SHADOW, radius + 2)
+	push_filled_rect(&mgr.draw_list, list_rect, data.popup_color, radius)
+	push_rect_outline(&mgr.draw_list, list_rect, data.popup_border_color, 1, radius)
 
 	full_screen := Rect{0, 0, f32(mgr.backend.width), f32(mgr.backend.height)}
 	push_clip(&mgr.draw_list, list_rect)
@@ -392,14 +401,15 @@ emit_dropdown_list :: proc(mgr: ^Manager, anchor: Rect, data: Popup_Dropdown_Dat
 
 		mouse_over := rect_contains(item_rect, mgr.input.mouse_x, mgr.input.mouse_y)
 
-		// Highlight hovered item
+		// Highlight hovered item — inset so it sits inside the rounded frame
 		if mouse_over {
-			push_filled_rect(&mgr.draw_list, item_rect, data.item_hover_color, 0)
+			hover_rect := Rect{item_rect.x + 2, item_rect.y + 1, item_rect.w - 4, item_rect.h - 2}
+			push_filled_rect(&mgr.draw_list, hover_rect, data.item_hover_color, max(0, radius - 1))
 		}
 
 		// Selected indicator
 		if i == data.selected^ {
-			push_filled_rect(&mgr.draw_list, Rect{item_rect.x, item_y, 3, item_h}, data.selected_color, 0)
+			push_filled_rect(&mgr.draw_list, Rect{item_rect.x + 2, item_y + 4, 3, item_h - 8}, data.selected_color, 1)
 		}
 
 		// Item text
@@ -419,15 +429,15 @@ emit_dropdown_list :: proc(mgr: ^Manager, anchor: Rect, data: Popup_Dropdown_Dat
 	push_clip(&mgr.draw_list, full_screen)
 
 	if content_h > list_h && list_h > 0 {
-		track := Rect{list_rect.x + list_rect.w - DROPDOWN_SCROLLBAR_WIDTH, list_rect.y, DROPDOWN_SCROLLBAR_WIDTH, list_h}
-		thumb_h := max(f32(20), list_h * list_h / content_h)
+		track := Rect{list_rect.x + list_rect.w - DROPDOWN_SCROLLBAR_WIDTH - 2, list_rect.y + 2, DROPDOWN_SCROLLBAR_WIDTH, list_h - 4}
+		thumb_h := max(f32(20), track.h * list_h / content_h)
 		max_offset := content_h - list_h
 		thumb_y := track.y
 		if max_offset > 0 {
 			thumb_y += (scroll_offset / max_offset) * (track.h - thumb_h)
 		}
-		push_filled_rect(&mgr.draw_list, track, Color{0, 0, 0, 75}, 0)
-		push_filled_rect(&mgr.draw_list, Rect{track.x, thumb_y, track.w, thumb_h}, THEME_DROPDOWN_ARROW, 2)
+		push_filled_rect(&mgr.draw_list, track, THEME_SCROLLBAR_BG, DROPDOWN_SCROLLBAR_WIDTH / 2)
+		push_filled_rect(&mgr.draw_list, Rect{track.x, thumb_y, track.w, thumb_h}, THEME_SCROLLBAR_THUMB, DROPDOWN_SCROLLBAR_WIDTH / 2)
 	}
 }
 
@@ -438,8 +448,13 @@ emit_menu_list :: proc(mgr: ^Manager, anchor: Rect, data: Popup_Menu_Data) {
 	list_x := anchor.x + anchor.w - list_w
 	list_rect := Rect{list_x, anchor.y + anchor.h, list_w, list_h}
 
-	push_filled_rect(&mgr.draw_list, list_rect, data.popup_color, 0)
-	push_rect_outline(&mgr.draw_list, list_rect, data.popup_border_color, 1, 0)
+	// Soft drop shadow, then background
+	radius := data.corner_radius
+	shadow_rect := rect_expand(list_rect, 1)
+	shadow_rect.y += 3
+	push_filled_rect(&mgr.draw_list, shadow_rect, THEME_SHADOW, radius + 2)
+	push_filled_rect(&mgr.draw_list, list_rect, data.popup_color, radius)
+	push_rect_outline(&mgr.draw_list, list_rect, data.popup_border_color, 1, radius)
 
 	for opt, i in data.options {
 		item_y := list_rect.y + f32(i) * item_h
@@ -447,7 +462,8 @@ emit_menu_list :: proc(mgr: ^Manager, anchor: Rect, data: Popup_Menu_Data) {
 
 		mouse_over := rect_contains(item_rect, mgr.input.mouse_x, mgr.input.mouse_y)
 		if mouse_over {
-			push_filled_rect(&mgr.draw_list, item_rect, data.item_hover_color, 0)
+			hover_rect := Rect{item_rect.x + 2, item_rect.y + 1, item_rect.w - 4, item_rect.h - 2}
+			push_filled_rect(&mgr.draw_list, hover_rect, data.item_hover_color, max(0, radius - 1))
 		}
 
 		text_dims := measure_text(mgr, opt, data.font, data.scale)
@@ -506,12 +522,12 @@ emit_scrollbar_draw :: proc(mgr: ^Manager, rect: Rect, data: Deferred_Scrollbar_
 	track_rect, thumb_rect := scrollbar_rects(
 		rect, data.axis, data.offset, data.content, data.viewport, bar_w, data.inset,
 	)
-	thumb_color := data.color.fg
+	thumb_color := data.thumb_color
 	if data.active {
-		thumb_color = data.color.press
+		thumb_color = data.thumb_active_color
 	} else if data.hovered {
-		thumb_color = data.color.hover
+		thumb_color = data.thumb_hover_color
 	}
-	push_filled_rect(&mgr.draw_list, track_rect, data.color.bg, bar_w / 2)
+	push_filled_rect(&mgr.draw_list, track_rect, data.track_color, bar_w / 2)
 	push_filled_rect(&mgr.draw_list, thumb_rect, thumb_color, bar_w / 2)
 }

@@ -11,8 +11,7 @@ Size_Kind :: enum {
 	Fixed,    // Exact pixel value
 	Percent,  // Fraction of parent (0.0–1.0)
 	Grow,     // Fill remaining space, weighted
-	Fit,      // Shrink to fit children
-	Auto,     // Determined by content (e.g. text measurement)
+	Fit,      // Shrink to fit children (or content, e.g. text measurement)
 }
 
 Size_Spec :: struct {
@@ -65,7 +64,10 @@ Box :: struct {
 
 	// Desired size
 	size:           [2]Size_Spec,    // [horizontal, vertical]
-	min_size:       [2]f32,
+	// Optional pixel clamps applied after size resolution. Widget procs
+	// return the box index, so callers can set these directly:
+	//   mgr.boxes[idx].max_size = {400, 0}
+	min_size:       [2]f32,          // 0 means unconstrained
 	max_size:       [2]f32,          // 0 means unbounded
 
 	// Container layout properties
@@ -74,7 +76,6 @@ Box :: struct {
 	justify:        Justify,
 	align:          Align,
 	gap:            f32,
-	wrap:           bool,
 
 	// Grid-specific
 	grid_cols:      []Size_Spec,
@@ -128,16 +129,8 @@ size_fit :: proc() -> Size_Spec {
 	return Size_Spec{.Fit, 0}
 }
 
-size_auto :: proc() -> Size_Spec {
-	return Size_Spec{.Auto, 0}
-}
-
 // Constants for use as default parameters (procs can't be used as defaults)
 SIZE_GROW :: Size_Spec{.Grow, 1.0}
 SIZE_FIT  :: Size_Spec{.Fit, 0}
-SIZE_AUTO :: Size_Spec{.Auto, 0}
 GROW_GROW    :: [2]Size_Spec{SIZE_GROW, SIZE_GROW}
 SIZE_FIT_FIT :: [2]Size_Spec{SIZE_FIT, SIZE_FIT}
-GROW_FIXED_30 :: [2]Size_Spec{SIZE_GROW, {.Fixed, 30}}
-FIXED_200_30  :: [2]Size_Spec{{.Fixed, 200}, {.Fixed, 30}}
-FIXED_200_FIT :: [2]Size_Spec{{.Fixed, 200}, SIZE_FIT}

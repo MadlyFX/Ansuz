@@ -13,25 +13,13 @@ package ansuz
 //   scroll_end(&mgr)
 
 SCROLL_SPEED :: f32(30)
-
-THEME_SCROLLBAR_BG           :: Color{50, 53, 60, 100}
-THEME_SCROLLBAR_THUMB        :: Color{120, 123, 130, 180}
-THEME_SCROLLBAR_THUMB_HOVER  :: Color{150, 153, 160, 220}
-THEME_SCROLLBAR_THUMB_ACTIVE :: Color{180, 183, 190, 255}
-SCROLLBAR_WIDTH       :: f32(6)
+SCROLLBAR_WIDTH :: f32(6)
 // Shortest the thumb may get, so a very long page still leaves something to grab.
-SCROLLBAR_MIN_THUMB   :: f32(20)
+SCROLLBAR_MIN_THUMB :: f32(20)
 // How far either side of the bar still counts as pressing it. A 6px target is
 // hard to hit; the slack reaches into the container's padding, where there is
 // nothing else to press.
-SCROLLBAR_GRAB_PAD    :: f32(5)
-
-SCROLLBAR_COLOR_DEFAULT :: Widget_Color {
-	bg    = THEME_SCROLLBAR_BG,
-	fg    = THEME_SCROLLBAR_THUMB,
-	hover = THEME_SCROLLBAR_THUMB_HOVER,
-	press = THEME_SCROLLBAR_THUMB_ACTIVE,
-}
+SCROLLBAR_GRAB_PAD :: f32(5)
 
 Scroll_State :: struct {
 	axis:       Axis,
@@ -76,11 +64,12 @@ scroll_begin :: proc(
 	size:     [2]Size_Spec = GROW_GROW,
 	padding:  [4]f32     = {},
 	bg_color: Color      = COLOR_TRANSPARENT,
-	// The bar's own metrics and colours: bg is the track, fg the thumb, with
-	// hover and press its pointer states.
-	scrollbar_width: f32 = SCROLLBAR_WIDTH,
-	scrollbar_inset: f32 = 2,
-	scrollbar_color: Widget_Color = SCROLLBAR_COLOR_DEFAULT,
+	scrollbar_color:              Color = THEME_SCROLLBAR_BG,
+	scrollbar_thumb_color:        Color = THEME_SCROLLBAR_THUMB,
+	scrollbar_thumb_hover_color:  Color = THEME_SCROLLBAR_THUMB_HOVER,
+	scrollbar_thumb_active_color: Color = THEME_SCROLLBAR_THUMB_ACTIVE,
+	scrollbar_width:              f32   = SCROLLBAR_WIDTH,
+	scrollbar_inset:              f32   = 2,
 	loc       := #caller_location,
 ) -> ^Scroll_State {
 	id := id_from_loc(&mgr.id_stack, loc)
@@ -193,15 +182,18 @@ scroll_begin :: proc(
 			box_index = idx,
 			kind      = .Scrollbar,
 			scrollbar = Deferred_Scrollbar_Data{
-				axis = axis,
-				offset = ss.offset_x if horizontal else ss.offset_y,
-				content = content,
-				viewport = viewport,
-				width = scrollbar_width,
-				inset = scrollbar_inset,
-				color = scrollbar_color,
-				hovered = bar_hovered,
-				active = ss.dragging,
+				axis               = axis,
+				offset             = ss.offset_x if horizontal else ss.offset_y,
+				content            = content,
+				viewport           = viewport,
+				width              = scrollbar_width,
+				inset              = scrollbar_inset,
+				track_color        = scrollbar_color,
+				thumb_color        = scrollbar_thumb_color,
+				thumb_hover_color  = scrollbar_thumb_hover_color,
+				thumb_active_color = scrollbar_thumb_active_color,
+				hovered            = bar_hovered,
+				active             = ss.dragging,
 			},
 		})
 	}

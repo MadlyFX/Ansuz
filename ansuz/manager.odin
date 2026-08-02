@@ -18,15 +18,12 @@ Widget_State :: struct {
 	has_value:       bool,       // Whether this widget tracks a value
 	dirty:           bool,       // Value changed since last frame
 
-	// --- Future: value interception ---
-	// These fields enable the manager to constrain or override values.
-	// Not yet enforced — infrastructure for Step 4 (animations) and user constraints.
-	constraint_min:  u64,        // Min value (as raw bits)
-	constraint_max:  u64,        // Max value (as raw bits)
-	has_constraints: bool,
-	wrap:            bool,       // Wrap vs clamp on constraint violation
-	override_bits:   u64,        // Animation override value
-	override_active: bool,       // Whether override is in effect
+	// --- Interaction transitions ---
+	// Smoothed 0..1 fades driving hover/press/focus visuals (see transition.odin).
+	// Checkbox reuses press_t as its checked-state fade.
+	hover_t:         f32,
+	press_t:         f32,
+	focus_t:         f32,
 }
 
 // Maps widget ID to its box index so frame_end can update prev_rect.
@@ -217,8 +214,6 @@ frame_begin :: proc(mgr: ^Manager, dt: f32 = -1) {
 
 	// Poll backend for input events
 	if mgr.backend.poll_events != nil {
-		mgr.input.mouse_prev_x = mgr.input.mouse_x
-		mgr.input.mouse_prev_y = mgr.input.mouse_y
 		mgr.input.quit = mgr.backend.poll_events(mgr.backend, &mgr.input)
 	}
 

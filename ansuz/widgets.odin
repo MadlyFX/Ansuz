@@ -2,23 +2,15 @@ package ansuz
 import "core:fmt"
 
 // --- Widget Procs ---
-// Button, Label, and other basic widgets for Step 2.
-
-// --- Theme Colors ---
-
-THEME_BG_BUTTON :: Color{60, 63, 70, 255}
-THEME_BG_BUTTON_HOVER :: Color{75, 78, 88, 255}
-THEME_BG_BUTTON_ACTIVE :: Color{45, 48, 55, 255}
-THEME_TEXT :: Color{230, 230, 230, 255}
-THEME_TEXT_DIM :: Color{160, 160, 165, 255}
-THEME_BORDER :: Color{80, 83, 90, 255}
-
-List_Options :: enum {
-	Numbered,
-	Bulleted,
-	Alt_BG_Color,
-	None,
-}
+// Label, button, and heading. Theme color defaults live in theme.odin.
+//
+// Scale conventions across the widget set:
+//   - Text widgets (label, button, heading, dropdown, menu_button, tree rows,
+//     text_input, collapsible_header) take a font scale, defaulting to
+//     DEFAULT_FONT_SCALE.
+//   - Composite widgets whose geometry scales as a whole (checkbox, slider,
+//     disclosure_icon, hamburger_icon) take a widget multiplier defaulting to
+//     1.0; their text is drawn at scale * DEFAULT_FONT_SCALE.
 
 // Scale for the built-in bitmap font (2 = 10x14 pixel characters).
 // Mutable so it can be shadowed for custom fonts with different native sizes.
@@ -98,7 +90,7 @@ label :: proc(
 	return idx
 }
 
-affix :: enum {
+Affix :: enum {
 	None,
 	Prefix,
 	Suffix,
@@ -110,7 +102,7 @@ label_decorated :: proc(
 	decorator: string,
 	color: Color = THEME_TEXT,
 	bg_color: Color = COLOR_TRANSPARENT,
-	affix: affix = .Prefix,
+	affix: Affix = .Prefix,
 	font: Font_Handle = FONT_DEFAULT,
 	scale: f32 = DEFAULT_FONT_SCALE,
 	size: [2]Size_Spec = SIZE_FIT_FIT,
@@ -142,6 +134,7 @@ label_decorated :: proc(
 
 // --- Button ---
 // Clickable button with text. Returns interaction flags.
+// colors slots: bg = resting fill, fg = border, hover/press/focus = state fills.
 
 button :: proc(
 	mgr: ^Manager,
@@ -149,7 +142,7 @@ button :: proc(
 	scale: f32 = DEFAULT_FONT_SCALE,
 	size: [2]Size_Spec = SIZE_FIT_FIT,
 	padding: [4]f32 = {6, 16, 6, 16},
-	color: Widget_Color = Widget_Color{
+	colors: Widget_Color = Widget_Color{
 		bg = THEME_BG_BUTTON,
 		fg = THEME_BORDER,
 		hover = THEME_BG_BUTTON_HOVER,
@@ -158,6 +151,8 @@ button :: proc(
 	},
 	text_color: Color = THEME_TEXT,
 	font: Font_Handle = FONT_DEFAULT,
+	corner_radius: f32 = -1, // negative = derive from scale
+	disabled: bool = false,
 	clip: bool = false,
 	loc := #caller_location,
 ) -> Interaction {
@@ -171,21 +166,31 @@ button :: proc(
 	}
 
 	// Compute interaction
-	interaction := compute_interaction(mgr, id, prev_rect)
+	interaction: Interaction
+	bg := colors.bg
+	border := colors.fg
+	effective_text_color := text_color
+	if disabled {
+		release_interaction(mgr, id)
+		border = disabled_color(border)
+		effective_text_color = disabled_color(effective_text_color)
+	} else {
+		interaction = compute_interaction(mgr, id, prev_rect)
 
-	// Smooth color transition based on interaction state
-	hover_t := get_hover_t(mgr, id, .Hovered in interaction)
-	press_t := get_press_t(mgr, id, .Pressed in interaction)
-	focus_t := get_focus_t(mgr, id, .Focused in interaction)
-	bg := blend_interaction_color(
-		color.bg,
-		color.hover,
-		color.press,
-		color.focus,
-		hover_t,
-		press_t,
-		focus_t,
-	)
+		// Smooth color transition based on interaction state
+		hover_t := get_hover_t(mgr, id, .Hovered in interaction)
+		press_t := get_press_t(mgr, id, .Pressed in interaction)
+		focus_t := get_focus_t(mgr, id, .Focused in interaction)
+		bg = blend_interaction_color(
+			colors.bg,
+			colors.hover,
+			colors.press,
+			colors.focus,
+			hover_t,
+			press_t,
+			focus_t,
+		)
+	}
 
 	// Compute size from text if Fit
 	actual_size := size
@@ -200,8 +205,8 @@ button :: proc(
 	idx := box(mgr, size = actual_size, bg_color = bg, loc = loc)
 	mgr.boxes[idx].padding = padding
 	mgr.boxes[idx].border_width = 1
-	mgr.boxes[idx].border_color = color.fg
-	mgr.boxes[idx].corner_radius = max(1, 4 * (scale / DEFAULT_FONT_SCALE))
+	mgr.boxes[idx].border_color = border
+	mgr.boxes[idx].corner_radius = corner_radius if corner_radius >= 0 else max(1, 4 * (scale / DEFAULT_FONT_SCALE))
 
 	// Defer text drawing
 	append(
@@ -209,7 +214,7 @@ button :: proc(
 		Deferred_Text {
 			box_index = idx,
 			text = text,
-			color = text_color,
+			color = effective_text_color,
 			scale = scale,
 			font = effective_font,
 			center_h = true,
@@ -234,7 +239,7 @@ heading :: proc(
 	mgr: ^Manager,
 	text: string,
 	color: Color = THEME_TEXT,
-	bg_color: Color = COLOR_DARK_GRAY,
+	bg_color: Color = COLOR_TRANSPARENT,
 	font: Font_Handle = FONT_DEFAULT,
 	scale: f32 = 3,
 	size: [2]Size_Spec = SIZE_FIT_FIT,

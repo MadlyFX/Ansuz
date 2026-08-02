@@ -5,17 +5,14 @@ import "core:fmt"
 // --- Slider ---
 // A horizontal slider that writes its value through a pointer.
 // Uses the pointer-based reactive state pattern: pass &my_value.
+// scale is a whole-widget multiplier (1 = default size).
+// colors slots: bg = track, fg = fill, hover = fill while hovered,
+// press = thumb while dragging, focus = thumb.
 
 SLIDER_TRACK_HEIGHT   :: f32(6)
 SLIDER_THUMB_WIDTH    :: f32(16)
 SLIDER_THUMB_HEIGHT   :: f32(22)
 SLIDER_DEFAULT_HEIGHT :: f32(30)
-
-THEME_SLIDER_TRACK       :: Color{50, 53, 60, 255}
-THEME_SLIDER_FILL        :: Color{80, 140, 220, 255}
-THEME_SLIDER_FILL_HOVER  :: Color{100, 160, 240, 255}
-THEME_SLIDER_THUMB        :: Color{200, 203, 210, 255}
-THEME_SLIDER_THUMB_ACTIVE :: Color{80, 140, 220, 255}
 
 slider_f32 :: proc(
 	mgr:   ^Manager,
@@ -23,7 +20,7 @@ slider_f32 :: proc(
 	lo:    f32 = 0,
 	hi:    f32 = 1,
 	scale: f32 = 1.0,
-	color: Widget_Color = Widget_Color{
+	colors: Widget_Color = Widget_Color{
 		bg    = THEME_SLIDER_TRACK,
 		fg    = THEME_SLIDER_FILL,
 		hover = THEME_SLIDER_FILL_HOVER,
@@ -31,6 +28,7 @@ slider_f32 :: proc(
 		focus = THEME_SLIDER_THUMB,
 	},
 	size:  [2]Size_Spec = {SIZE_GROW, SIZE_FIT},
+	disabled: bool = false,
 	loc    := #caller_location,
 ) -> Interaction {
 	id := id_from_ptr_loc(&mgr.id_stack, value, loc)
@@ -47,7 +45,12 @@ slider_f32 :: proc(
 		prev_rect = state.prev_rect
 	}
 
-	interaction := compute_interaction(mgr, id, prev_rect)
+	interaction: Interaction
+	if disabled {
+		release_interaction(mgr, id)
+	} else {
+		interaction = compute_interaction(mgr, id, prev_rect)
+	}
 
 	// If actively dragging, update value from mouse position
 	thumb_w := SLIDER_THUMB_WIDTH * scale
@@ -77,11 +80,16 @@ slider_f32 :: proc(
 	if hi > lo {
 		t = (value^ - lo) / (hi - lo)
 	}
+	draw_colors := colors
+	if disabled {
+		draw_colors.fg = disabled_color(draw_colors.fg, 0.35)
+		draw_colors.focus = disabled_color(draw_colors.focus, 0.35)
+	}
 	append(&mgr.deferred_draws, Deferred_Draw{
 		box_index = idx,
 		kind      = .Slider,
 		scale     = scale,
-		color     = color,
+		colors    = draw_colors,
 		slider    = Deferred_Slider_Data{
 			t           = t,
 			interaction = interaction,
@@ -105,7 +113,7 @@ slider_labeled :: proc(
 	scale:  f32 = 1.0,
 	format: string = "%.2f",
 	font: Font_Handle = FONT_DEFAULT,
-	color: Widget_Color = Widget_Color{
+	colors: Widget_Color = Widget_Color{
 		bg    = THEME_SLIDER_TRACK,
 		fg    = THEME_SLIDER_FILL,
 		hover = THEME_SLIDER_FILL_HOVER,
@@ -113,15 +121,22 @@ slider_labeled :: proc(
 		focus = THEME_SLIDER_THUMB,
 	},
 	text_color: Color = THEME_TEXT,
+	disabled: bool = false,
 	loc     := #caller_location,
 ) -> Interaction {
 	effective_font := resolve_font(mgr, font)
+	// Plain if instead of a ternary: mixing a param and a call result in one
+	// ternary miscompiles on arm32 with current Odin nightlies.
+	effective_text_color := text_color
+	if disabled {
+		effective_text_color = disabled_color(text_color)
+	}
 	row_h := SLIDER_DEFAULT_HEIGHT * scale
 	gap := max(2, 10 * scale)
 	flex_begin(mgr, axis = .Horizontal, gap = gap, align = .Center, size = {SIZE_GROW, size_fixed(row_h)}, loc = loc)
-	label(mgr, text, scale = scale * DEFAULT_FONT_SCALE, font = effective_font, color = text_color)
-	interaction := slider_f32(mgr, value, lo, hi, scale = scale, size = {SIZE_GROW, size_fixed(row_h)}, color = color)
-	label(mgr, fmt.tprintf(format, value^), scale = scale * DEFAULT_FONT_SCALE, color = text_color, font = effective_font)
+	label(mgr, text, scale = scale * DEFAULT_FONT_SCALE, font = effective_font, color = effective_text_color)
+	interaction := slider_f32(mgr, value, lo, hi, scale = scale, size = {SIZE_GROW, size_fixed(row_h)}, colors = colors, disabled = disabled)
+	label(mgr, fmt.tprintf(format, value^), scale = scale * DEFAULT_FONT_SCALE, color = effective_text_color, font = effective_font)
 	flex_end(mgr)
 	return interaction
 }

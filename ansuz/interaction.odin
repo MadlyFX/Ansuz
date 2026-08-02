@@ -13,6 +13,15 @@ Interaction_Flag :: enum {
 	Focused,   // Widget has keyboard focus
 }
 
+// Drop any interaction ownership a widget currently holds. Called when a
+// widget is disabled so a stale hot/active/focus reference cannot linger and
+// block other widgets from interacting.
+release_interaction :: proc(mgr: ^Manager, id: Widget_ID) {
+	if mgr.hot_id == id { mgr.hot_id = ID_NONE }
+	if mgr.active_id == id { mgr.active_id = ID_NONE }
+	if mgr.focus_id == id { mgr.focus_id = ID_NONE }
+}
+
 // interaction_blocked reports whether something else owns the pointer this
 // frame — a modal, a popup, a held scrollbar — or whether the widget is scrolled
 // out of its container's visible clip. Split out so compute_interaction can

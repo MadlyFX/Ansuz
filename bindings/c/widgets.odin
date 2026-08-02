@@ -61,7 +61,7 @@ ansuz_label_decorated :: proc "c" (
 	context = odin_context
 	push_scoped_id(id)
 	defer pop_scoped_id()
-	affix_value: ansuz.affix = .Prefix
+	affix_value: ansuz.Affix = .Prefix
 	if affix == 0 {
 		affix_value = .None
 	} else if affix == 2 {
@@ -139,7 +139,7 @@ ansuz_button :: proc "c" (id: u64, text: C_String, options: ^C_Button_Options) -
 			scale = options.scale,
 			size = to_size(options.size),
 			padding = to_edges(options.padding),
-			color = to_widget_color(options.color),
+			colors = to_widget_color(options.color),
 			text_color = to_color(options.text_color),
 			font = to_font(options.font),
 		),
@@ -171,7 +171,7 @@ ansuz_checkbox :: proc "c" (
 			bool_value,
 			scale = options.scale,
 			font = to_font(options.font),
-			color = to_widget_color(options.color),
+			colors = to_widget_color(options.color),
 			text_color = to_color(options.text_color),
 			check_color = to_color(options.check_color),
 			border_color = to_color(options.border_color),
@@ -202,7 +202,7 @@ ansuz_slider_f32 :: proc "c" (
 			options.lo,
 			options.hi,
 			scale = options.scale,
-			color = to_widget_color(options.color),
+			colors = to_widget_color(options.color),
 			size = to_size(options.size),
 		),
 	)
@@ -239,7 +239,7 @@ ansuz_slider_labeled_f32 :: proc "c" (
 			scale = options.scale,
 			format = format,
 			font = to_font(options.font),
-			color = to_widget_color(options.color),
+			colors = to_widget_color(options.color),
 			text_color = to_color(options.text_color),
 		),
 	)
@@ -280,7 +280,7 @@ ansuz_dropdown :: proc "c" (
 			size = to_size(options.size),
 			scale = options.scale,
 			font = to_font(options.font),
-			color = to_widget_color(options.color),
+			colors = to_widget_color(options.color),
 			text_color = to_color(options.text_color),
 			indicator_color = to_color(options.indicator_color),
 			popup_color = to_color(options.popup_color),
@@ -337,7 +337,7 @@ ansuz_text_input :: proc "c" (
 			size = to_size(options.size),
 			padding = to_edges(options.padding),
 			placeholder = to_string(options.placeholder),
-			color = to_widget_color(options.color),
+			colors = to_widget_color(options.color),
 			text_color = to_color(options.text_color),
 			placeholder_color = to_color(options.placeholder_color),
 			cursor_color = to_color(options.cursor_color),

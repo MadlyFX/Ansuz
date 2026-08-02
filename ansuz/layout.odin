@@ -85,8 +85,21 @@ grid_begin :: proc(
 	b.size        = size
 	b.padding     = padding
 	b.bg_color    = bg_color
-	b.grid_cols   = cols
-	b.grid_rows   = rows
+	// The layout solver runs at frame_end, after the caller may have returned.
+	// Retain the track specs in the frame arena so slices backed by caller-local
+	// arrays cannot dangle.
+	b.grid_cols   = copy_specs_to_frame(mgr, cols)
+	b.grid_rows   = copy_specs_to_frame(mgr, rows)
+}
+
+@(private)
+copy_specs_to_frame :: proc(mgr: ^Manager, specs: []Size_Spec) -> []Size_Spec {
+	if len(specs) == 0 {
+		return nil
+	}
+	retained := make([]Size_Spec, len(specs), mgr.frame_allocator)
+	copy(retained, specs)
+	return retained
 }
 
 // End a grid container.

@@ -1,4 +1,4 @@
-//+build !freestanding
+#+build !freestanding
 package ansuz
 
 // --- Embedded Font Data ---

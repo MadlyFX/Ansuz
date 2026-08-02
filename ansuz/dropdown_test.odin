@@ -1,3 +1,4 @@
+#+build !freestanding
 package ansuz
 
 import "core:testing"

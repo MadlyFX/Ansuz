@@ -229,10 +229,8 @@ to_size_spec :: proc(spec: C_Size_Spec) -> ansuz.Size_Spec {
 		return ansuz.size_pct(spec.value)
 	case 2:
 		return ansuz.size_grow(spec.value)
-	case 3:
+	case 3, 4: // ANSUZ_SIZE_FIT; ANSUZ_SIZE_AUTO is a legacy alias of FIT
 		return ansuz.SIZE_FIT
-	case 4:
-		return ansuz.SIZE_AUTO
 	}
 	return ansuz.SIZE_FIT
 }

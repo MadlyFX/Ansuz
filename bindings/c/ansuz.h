@@ -34,7 +34,7 @@ typedef enum AnsuzSizeKind {
     ANSUZ_SIZE_PERCENT = 1,
     ANSUZ_SIZE_GROW = 2,
     ANSUZ_SIZE_FIT = 3,
-    ANSUZ_SIZE_AUTO = 4,
+    ANSUZ_SIZE_AUTO = 4, /* legacy alias of ANSUZ_SIZE_FIT */
 } AnsuzSizeKind;
 
 typedef enum AnsuzJustify {
@@ -494,6 +494,7 @@ static inline AnsuzSizeSpec ansuz_size_fit(void) {
     return value;
 }
 
+/* Legacy alias of ansuz_size_fit(). */
 static inline AnsuzSizeSpec ansuz_size_auto(void) {
     AnsuzSizeSpec value = {ANSUZ_SIZE_AUTO, 0.0f};
     return value;

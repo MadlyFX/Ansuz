@@ -203,8 +203,6 @@ ansuz_input_pointer :: proc "c" (x, y: f32, left, right, middle: u8) {
 		return
 	}
 	context = odin_context
-	manager.input.mouse_prev_x = manager.input.mouse_x
-	manager.input.mouse_prev_y = manager.input.mouse_y
 	manager.input.mouse_x = x
 	manager.input.mouse_y = y
 

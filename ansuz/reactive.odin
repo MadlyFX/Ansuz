@@ -3,10 +3,8 @@ package ansuz
 
 // --- Reactive Value Tracking ---
 // The manager internally tracks values passed to widgets via pointers.
-// Each frame, the current value is compared to the previous snapshot.
-// This enables:
-//   1. Dirty detection — skip re-rendering unchanged widgets on embedded
-//   2. Future: value constraints (clamp, wrap) and animation overrides
+// Each frame, the current value is compared to the previous snapshot for
+// dirty detection — embedded hosts can skip redrawing unchanged frames.
 //
 // The user API stays clean — just pass &my_variable. The tracking is automatic.
 
@@ -95,18 +93,6 @@ any_value_dirty :: proc(mgr: ^Manager) -> bool {
 		}
 	}
 	return false
-}
-
-// --- Future: Constraint API (infrastructure in place, not yet enforced) ---
-
-// Set constraints on a tracked value. The manager will enforce these
-// when animations or overrides write to the value.
-set_constraints_f32 :: proc(mgr: ^Manager, id: Widget_ID, lo, hi: f32, wrap: bool = false) {
-	ws := get_or_create_widget_state(mgr, id)
-	ws.constraint_min = value_to_bits_f32(lo)
-	ws.constraint_max = value_to_bits_f32(hi)
-	ws.has_constraints = true
-	ws.wrap = wrap
 }
 
 // widget_prev_rect returns a widget's rect as resolved on the previous frame,

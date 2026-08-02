@@ -25,6 +25,7 @@ SDL_Data :: struct {
 	renderer:            ^SDL.Renderer,
 	title:               cstring,
 	pixel_density:       f32,
+	clear_color:         ansuz.Color,
 	file_drag_active:    bool,
 	file_drop_completed: bool,
 	builtin_font_texture: ^SDL.Texture,  // 16x16 grid of 5x7 glyphs = 80x112 atlas
@@ -55,6 +56,7 @@ create :: proc(width: i32 = 960, height: i32 = 540, title: cstring = "ansuz") ->
 
 	data := new(SDL_Data)
 	data.title = title
+	data.clear_color = ansuz.Color{30, 30, 34, 255}
 	data.zoom = 1
 	backend.user_data = data
 
@@ -403,9 +405,16 @@ sdl_shutdown :: proc(backend: ^ansuz.Backend) {
 	free(data)
 }
 
+// Set the color the window is cleared to at the start of each frame.
+set_clear_color :: proc(backend: ^ansuz.Backend, color: ansuz.Color) {
+	data := cast(^SDL_Data)backend.user_data
+	data.clear_color = color
+}
+
 sdl_begin_frame :: proc(backend: ^ansuz.Backend) {
 	data := cast(^SDL_Data)backend.user_data
-	SDL.SetRenderDrawColor(data.renderer, 30, 30, 34, 255)
+	c := data.clear_color
+	SDL.SetRenderDrawColor(data.renderer, c.r, c.g, c.b, c.a)
 	SDL.RenderClear(data.renderer)
 }
 
@@ -829,7 +838,7 @@ sdl_poll_events :: proc(backend: ^ansuz.Backend, input: ^ansuz.Input_State) -> b
 			input.mouse_scroll_y = e.wheel.y
 
 		case .TEXT_INPUT:
-			text_bytes := transmute([^]u8)e.text.text
+			text_bytes := cast([^]u8)e.text.text
 			for i in 0..<256 {
 				ch := text_bytes[i]
 				if ch == 0 { break }
@@ -907,7 +916,7 @@ sdl_poll_events :: proc(backend: ^ansuz.Backend, input: ^ansuz.Input_State) -> b
 		case .DROP_FILE:
 			data.file_drag_active = true
 			if e.drop.data != nil {
-				bytes := transmute([^]u8)e.drop.data
+				bytes := cast([^]u8)e.drop.data
 				for i in 0..<len(input.dropped_file) {
 					if bytes[i] == 0 { break }
 					input.dropped_file[input.dropped_file_len] = bytes[i]

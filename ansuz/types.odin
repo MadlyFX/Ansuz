@@ -10,6 +10,10 @@ Rect :: struct {
 
 Color :: distinct [4]u8
 
+// Five-state palette accepted by interactive widgets as their `colors`
+// parameter. The exact role of each slot is documented per widget (e.g. a
+// button's fg is its border; a slider's fg is its fill; a tree row's focus
+// is its selected background). Slots a widget doesn't use are ignored.
 Widget_Color :: struct {
 	bg:     Color,
 	fg:     Color,
@@ -34,7 +38,6 @@ COLOR_CYAN        :: Color{50, 220, 220, 255}
 COLOR_MAGENTA     :: Color{220, 50, 220, 255}
 COLOR_GRAY        :: Color{128, 128, 128, 255}
 COLOR_DARK_GRAY   :: Color{45, 45, 48, 255}
-COLOR_DIM 			:: Color{200, 200, 200, 255}
 
 // --- Rect Helpers ---
 

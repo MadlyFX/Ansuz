@@ -163,7 +163,7 @@ resolve_track_sizes :: proc(specs: []Size_Spec, available: f32, gap: f32, out: [
 			total_fixed += out[i]
 		case .Grow:
 			total_grow += specs[i].value
-		case .Fit, .Auto:
+		case .Fit:
 			// For grid tracks, treat as grow(1)
 			total_grow += 1
 		}
@@ -177,7 +177,7 @@ resolve_track_sizes :: proc(specs: []Size_Spec, available: f32, gap: f32, out: [
 			switch specs[i].kind {
 			case .Grow:
 				weight = specs[i].value
-			case .Fit, .Auto:
+			case .Fit:
 				weight = 1
 			case .Fixed, .Percent:
 				continue

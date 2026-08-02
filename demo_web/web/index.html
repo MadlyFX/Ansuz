@@ -14,14 +14,14 @@
             overflow: hidden;
         }
         canvas {
-            width: 800px;
-            height: 600px;
+            width: 1024px;
+            height: 768px;
             outline: none;
         }
     </style>
 </head>
 <body>
-    <canvas id="ansuz-canvas" width="800" height="600" tabindex="0"></canvas>
+    <canvas id="ansuz-canvas" tabindex="0"></canvas>
 
     <script src="odin.js"></script>
     <script>
@@ -36,13 +36,22 @@
         memInterface.setMemory(mem);
 
         const canvas = document.getElementById("ansuz-canvas");
+
+        // Logical size must match backend.create() in demo_web/main.odin.
+        // Layout and input use logical (CSS) pixels; the drawing buffer is
+        // scaled by devicePixelRatio so the backend renders at native density.
+        const LOGICAL_W = 1024;
+        const LOGICAL_H = 768;
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = LOGICAL_W * dpr;
+        canvas.height = LOGICAL_H * dpr;
         canvas.focus();
 
-        // Forward mouse events to WASM
+        // Forward mouse events to WASM in logical pixels
         canvas.addEventListener("mousemove", (e) => {
             const rect = canvas.getBoundingClientRect();
-            const scaleX = canvas.width / rect.width;
-            const scaleY = canvas.height / rect.height;
+            const scaleX = LOGICAL_W / rect.width;
+            const scaleY = LOGICAL_H / rect.height;
             if (memInterface.exports && memInterface.exports._ansuz_set_mouse) {
                 memInterface.exports._ansuz_set_mouse(
                     (e.clientX - rect.left) * scaleX,

@@ -136,7 +136,7 @@ get_child_natural_size :: proc(child: ^Box, axis: int) -> f32 {
 	case .Fit:
 		// Fit should already be resolved to Fixed by bottom-up pass
 		return spec.value
-	case .Grow, .Percent, .Auto:
+	case .Grow, .Percent:
 		return 0
 	}
 	return 0

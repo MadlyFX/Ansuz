@@ -50,8 +50,6 @@ Backend :: struct {
 Input_State :: struct {
 	mouse_x:            f32,
 	mouse_y:            f32,
-	mouse_prev_x:       f32,
-	mouse_prev_y:       f32,
 	mouse_left:         bool,
 	mouse_right:        bool,
 	mouse_middle:       bool,

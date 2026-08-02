@@ -139,7 +139,6 @@ main :: proc() {
 	opensans_bold, font_ok = ansuz.load_font(&mgr, ansuz.OPENSANS_BOLD, body_px)
 	opensans_heading, font_ok = ansuz.load_font(&mgr, ansuz.OPENSANS_BOLD, heading_px)
 
-	img_err: image.Error
 	img, img_err = png.load_from_bytes(PNG_DATA)
 	if img_err != nil {
 		fmt.println("Failed to load image:", img_err)
@@ -276,7 +275,7 @@ step :: proc(dt: f32) -> bool {
 			&mgr,
 			&selected_item,
 			options[:],
-			size = ansuz.FIXED_200_30,
+			size = {ansuz.size_fixed(200), ansuz.size_fixed(30)},
 			font = opensans,
 			text_color = ansuz.COLOR_WHITE,
 			popup_color = ansuz.Color{34, 38, 46, 245},
@@ -293,7 +292,7 @@ step :: proc(dt: f32) -> bool {
 			"Actions",
 			&menu_selected,
 			menu_options[:],
-			size = ansuz.FIXED_200_30,
+			size = {ansuz.size_fixed(200), ansuz.size_fixed(30)},
 			font = opensans,
 			text_color = ansuz.COLOR_WHITE,
 			popup_color = ansuz.Color{32, 35, 42, 245},

@@ -51,6 +51,7 @@ WebGL_Data :: struct {
 	width, height:       f32,
 	framebuffer_width:   i32,
 	framebuffer_height:  i32,
+	clear_color:         ansuz.Color,
 	loaded_fonts:        [dynamic]WebGL_Font,
 }
 
@@ -58,6 +59,7 @@ create :: proc(width, height: i32) -> ansuz.Backend {
 	data := new(WebGL_Data)
 	data.width = f32(width)
 	data.height = f32(height)
+	data.clear_color = ansuz.Color{30, 30, 34, 255}
 
 	backend: ansuz.Backend
 	backend.width     = width
@@ -93,6 +95,12 @@ resize :: proc(backend: ^ansuz.Backend, width, height: i32, zoom: f32 = 1) {
 	data.height = f32(h)
 	backend.width = w
 	backend.height = h
+}
+
+// Set the color the canvas is cleared to at the start of each frame.
+set_clear_color :: proc(backend: ^ansuz.Backend, color: ansuz.Color) {
+	data := cast(^WebGL_Data)backend.user_data
+	data.clear_color = color
 }
 
 // Ratio of drawing-buffer pixels to logical CSS pixels (devicePixelRatio when
@@ -218,7 +226,8 @@ webgl_begin_frame :: proc(backend: ^ansuz.Backend) {
 	data.framebuffer_width = canvas_w
 	data.framebuffer_height = canvas_h
 
-	gl.ClearColor(0.118, 0.118, 0.133, 1)
+	c := data.clear_color
+	gl.ClearColor(f32(c.r) / 255, f32(c.g) / 255, f32(c.b) / 255, f32(c.a) / 255)
 	gl.Clear(u32(gl.COLOR_BUFFER_BIT))
 
 	data.vertex_count = 0

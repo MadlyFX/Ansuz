@@ -1,17 +1,22 @@
 package ansuz
 
-THEME_MENU_POPUP      :: Color{45, 48, 55, 245}
-THEME_MENU_ITEM_HOVER :: Color{80, 140, 220, 255}
+// --- Menu Button ---
+// A button that opens an action list popup, right-aligned under the trigger.
+// Writes the picked option index through `selected` (reset it after handling).
+// colors slots: bg = resting fill, fg = border, hover = hovered fill,
+// press = open fill, focus = unused.
+
+MENU_POPUP_MIN_TEXT_MARGIN :: f32(20)
 
 menu_button :: proc(
 	mgr:      ^Manager,
 	text:     string,
 	selected: ^int,
 	options:  []string,
-	size:     [2]Size_Spec = {{.Fixed, 34}, {.Fixed, 30}},
+	size:     [2]Size_Spec = SIZE_FIT_FIT,
 	scale:    f32 = DEFAULT_FONT_SCALE,
 	font:     Font_Handle = FONT_DEFAULT,
-	color: Widget_Color = Widget_Color{
+	colors: Widget_Color = Widget_Color{
 		bg    = THEME_BG_BUTTON,
 		fg    = THEME_BORDER,
 		hover = THEME_BG_BUTTON_HOVER,
@@ -22,10 +27,13 @@ menu_button :: proc(
 	popup_color: Color = THEME_MENU_POPUP,
 	popup_border_color: Color = THEME_BORDER,
 	item_hover_color: Color = THEME_MENU_ITEM_HOVER,
+	padding: [4]f32 = {4, 12, 4, 12},
+	corner_radius: f32 = 4,
+	disabled: bool = false,
 	loc := #caller_location,
 ) -> Interaction {
 	effective_font := resolve_font(mgr, font)
-	item_height := max(28, get_line_height(mgr, effective_font, scale) + 8)
+	item_height := max(POPUP_ITEM_MIN_HEIGHT, get_line_height(mgr, effective_font, scale) + POPUP_ITEM_PADDING)
 	id := id_from_ptr_loc(&mgr.id_stack, selected, loc)
 
 	prev_rect := Rect{}
@@ -33,13 +41,21 @@ menu_button :: proc(
 		prev_rect = state.prev_rect
 	}
 
-	is_open := mgr.popup_owner == id
-	interaction := compute_interaction(mgr, id, prev_rect)
+	is_open := !disabled && mgr.popup_owner == id
+	interaction: Interaction
+	if disabled {
+		release_interaction(mgr, id)
+		if mgr.popup_owner == id {
+			mgr.popup_owner = ID_NONE
+		}
+	} else {
+		interaction = compute_interaction(mgr, id, prev_rect)
+	}
 
 	popup_w: f32 = prev_rect.w
 	for opt in options {
 		dims := measure_text(mgr, opt, effective_font, scale)
-		popup_w = max(popup_w, dims.x + 20)
+		popup_w = max(popup_w, dims.x + MENU_POPUP_MIN_TEXT_MARGIN)
 	}
 
 	if .Clicked in interaction {
@@ -66,18 +82,34 @@ menu_button :: proc(
 		}
 	}
 
-	bg := color.press if is_open else (color.hover if .Hovered in interaction else color.bg)
+	bg := colors.press if is_open else (colors.hover if .Hovered in interaction else colors.bg)
+	border := colors.fg
+	effective_text_color := text_color
+	if disabled {
+		border = disabled_color(border)
+		effective_text_color = disabled_color(effective_text_color)
+	}
 
-	idx := box(mgr, size = size, bg_color = bg, loc = loc)
-	mgr.boxes[idx].padding = {4, 8, 4, 8}
+	// Compute size from text if Fit (matches button behavior)
+	actual_size := size
+	text_dims := measure_text(mgr, text, effective_font, scale)
+	if actual_size[0].kind == .Fit {
+		actual_size[0] = size_fixed(text_dims.x + padding[1] + padding[3])
+	}
+	if actual_size[1].kind == .Fit {
+		actual_size[1] = size_fixed(text_dims.y + padding[0] + padding[2])
+	}
+
+	idx := box(mgr, size = actual_size, bg_color = bg, loc = loc)
+	mgr.boxes[idx].padding = padding
 	mgr.boxes[idx].border_width = 1
-	mgr.boxes[idx].border_color = color.fg
-	mgr.boxes[idx].corner_radius = 4
+	mgr.boxes[idx].border_color = border
+	mgr.boxes[idx].corner_radius = corner_radius
 
 	append(&mgr.deferred_texts, Deferred_Text{
 		box_index = idx,
 		text      = text,
-		color     = text_color,
+		color     = effective_text_color,
 		scale     = scale,
 		font      = effective_font,
 		center_h  = true,
@@ -108,6 +140,7 @@ menu_button :: proc(
 				popup_color        = popup_color,
 				popup_border_color = popup_border_color,
 				item_hover_color   = item_hover_color,
+				corner_radius      = corner_radius,
 			},
 		})
 	}

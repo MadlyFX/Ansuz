@@ -3,28 +3,27 @@ package ansuz
 // --- Dropdown ---
 // A dropdown selector. Writes the selected index through a ^int pointer.
 // The dropdown list renders as a popup overlay on top of other content.
+// colors slots: bg = closed fill, fg = border, hover = hovered fill,
+// press = open fill (focus is unused).
 
-THEME_DROPDOWN_BG        :: Color{55, 58, 65, 255}
-THEME_DROPDOWN_BG_HOVER  :: Color{70, 73, 83, 255}
-THEME_DROPDOWN_BG_OPEN   :: Color{50, 53, 58, 255}
-THEME_DROPDOWN_ITEM_HOVER :: Color{80, 140, 220, 255}
-THEME_DROPDOWN_ARROW      :: Color{180, 180, 185, 255}
-THEME_DROPDOWN_POPUP      :: Color{45, 48, 55, 245}
-
-// A zero value leaves popup height uncapped. Use this for long option lists
-// that should scroll instead of extending beyond the screen.
 DROPDOWN_SCROLLBAR_WIDTH :: f32(6)
+
+// Minimum height of a popup list row; rows grow with the font's line height.
+POPUP_ITEM_MIN_HEIGHT :: f32(28)
+POPUP_ITEM_PADDING    :: f32(8)
+
+DROPDOWN_DEFAULT_SIZE :: [2]Size_Spec{Size_Spec{.Fixed, 200}, SIZE_FIT}
 
 dropdown :: proc(
 	mgr:      ^Manager,
 	selected: ^int,
 	options:  []string,
-	size:     [2]Size_Spec = FIXED_200_30,
+	size:     [2]Size_Spec = DROPDOWN_DEFAULT_SIZE,
 	scale:    f32 = DEFAULT_FONT_SCALE,
 	font:     Font_Handle = FONT_DEFAULT,
-	color: Widget_Color = Widget_Color{
+	colors: Widget_Color = Widget_Color{
 		bg    = THEME_DROPDOWN_BG,
-		fg    = THEME_DROPDOWN_BG_HOVER,
+		fg    = THEME_BORDER,
 		hover = THEME_DROPDOWN_BG_HOVER,
 		press = THEME_DROPDOWN_BG_OPEN,
 	},
@@ -33,12 +32,15 @@ dropdown :: proc(
 	popup_color: Color = THEME_DROPDOWN_POPUP,
 	popup_border_color: Color = THEME_BORDER,
 	item_hover_color: Color = THEME_DROPDOWN_ITEM_HOVER,
-	selected_color: Color = THEME_SLIDER_FILL,
-	max_popup_height: f32 = 0,
+	selected_color: Color = THEME_ACCENT,
+	padding: [4]f32 = {4, 28, 4, 10}, // right padding reserves the arrow zone
+	corner_radius: f32 = 4,
+	max_popup_height: f32 = 0, // 0 leaves the popup uncapped; set to make long lists scroll
+	disabled: bool = false,
 	loc := #caller_location,
 ) -> Interaction {
 	effective_font := resolve_font(mgr, font)
-	item_height := max(28, get_line_height(mgr, effective_font, scale) + 8)
+	item_height := max(POPUP_ITEM_MIN_HEIGHT, get_line_height(mgr, effective_font, scale) + POPUP_ITEM_PADDING)
 	id := id_from_ptr_loc(&mgr.id_stack, selected, loc)
 
 	// Look up previous frame's rect
@@ -48,10 +50,18 @@ dropdown :: proc(
 	}
 
 	// Check if this dropdown is currently open
-	is_open := mgr.popup_owner == id
+	is_open := !disabled && mgr.popup_owner == id
 
 	// Interaction on the trigger button
-	interaction := compute_interaction(mgr, id, prev_rect)
+	interaction: Interaction
+	if disabled {
+		release_interaction(mgr, id)
+		if mgr.popup_owner == id {
+			mgr.popup_owner = ID_NONE
+		}
+	} else {
+		interaction = compute_interaction(mgr, id, prev_rect)
+	}
 
 	if .Clicked in interaction {
 		// Toggle open/close
@@ -91,11 +101,19 @@ dropdown :: proc(
 	// Choose appearance
 	bg: Color
 	if is_open {
-		bg = color.press
+		bg = colors.press
 	} else if .Hovered in interaction {
-		bg = color.hover
+		bg = colors.hover
 	} else {
-		bg = color.bg
+		bg = colors.bg
+	}
+	border := colors.fg
+	effective_text_color := text_color
+	effective_indicator_color := indicator_color
+	if disabled {
+		border = disabled_color(border)
+		effective_text_color = disabled_color(effective_text_color)
+		effective_indicator_color = disabled_color(effective_indicator_color)
 	}
 
 	// Clamp selected
@@ -103,12 +121,18 @@ dropdown :: proc(
 		selected^ = clamp(selected^, 0, len(options) - 1)
 	}
 
+	// Compute size — Fit height derives from the font like button/text_input
+	actual_size := size
+	if actual_size[1].kind == .Fit {
+		actual_size[1] = size_fixed(get_line_height(mgr, effective_font, scale) + padding[0] + padding[2])
+	}
+
 	// Create the trigger button box
-	idx := box(mgr, size = size, bg_color = bg, loc = loc)
-	mgr.boxes[idx].padding      = {4, 28, 4, 10} // right padding for arrow
+	idx := box(mgr, size = actual_size, bg_color = bg, loc = loc)
+	mgr.boxes[idx].padding      = padding
 	mgr.boxes[idx].border_width = 1
-	mgr.boxes[idx].border_color = color.fg
-	mgr.boxes[idx].corner_radius = 4
+	mgr.boxes[idx].border_color = border
+	mgr.boxes[idx].corner_radius = corner_radius
 
 	// Display selected option text
 	display_text := ""
@@ -118,20 +142,22 @@ dropdown :: proc(
 	append(&mgr.deferred_texts, Deferred_Text{
 		box_index = idx,
 		text      = display_text,
-		color     = text_color,
+		color     = effective_text_color,
 		scale     = scale,
 		font      = effective_font,
 		center_h  = false,
 		center_v  = true,
+		clip      = true,
 	})
 
-	// Defer the arrow indicator
+	// Defer the arrow indicator (scaled with the widget's font scale)
 	append(&mgr.deferred_draws, Deferred_Draw{
 		box_index = idx,
 		kind      = .Dropdown_Arrow,
+		scale     = max(1, scale / DEFAULT_FONT_SCALE),
 		dropdown  = Deferred_Dropdown_Data{
 			is_open = is_open,
-			color   = indicator_color,
+			color   = effective_indicator_color,
 		},
 	})
 
@@ -162,6 +188,7 @@ dropdown :: proc(
 				item_hover_color   = item_hover_color,
 				selected_color     = selected_color,
 				max_popup_height   = max_popup_height,
+				corner_radius      = corner_radius,
 			},
 		})
 	}

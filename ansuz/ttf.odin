@@ -22,7 +22,6 @@ load_font_from_data :: proc(
 	antialiasing: Font_Antialiasing = .Grayscale,
 ) -> (Font, bool) {
 	font: Font
-	font.kind = .Atlas
 	font.pixel_size = pixel_size
 	font.scale_norm = f32(FONT_GLYPH_HEIGHT) / pixel_size
 	font.antialiasing = antialiasing

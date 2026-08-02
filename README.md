@@ -8,7 +8,10 @@ It offers an immediate-mode authoring style with a retained internal state manag
 
 
 ## Status
-Ansuz is still in development, the syntax especially is still quite inconsistant. PRs welcome.
+The API is stabilized for 1.0. Naming is consistent across the widget set (see
+"Colors and Theming" below), all widgets take their colors, fonts, scale, and
+sizing as parameters with themed defaults, and interactive widgets support a
+`disabled` state. PRs welcome.
 
 ## Highlights
 
@@ -246,9 +249,28 @@ This allows the same UI code to run on desktop, embedded-style software pipeline
 - Pass `antialiasing = .None` to `load_font` for hard-edged, unantialiased glyphs (e-ink, low-density LCDs, pixel-art styling). The default is `.Grayscale`.
 - Demos use OpenSans for anti-aliased text rendering.
 
-Text colors use a plain `Color` override, while interactive widgets accept a
-`Widget_Color` palette for their state colors. All color arguments have built-in
-defaults and can be omitted.
+## Colors and Theming
+
+The default palette lives in `ansuz/theme.odin` as `THEME_*` constants, and
+every widget takes its colors as parameters defaulted to that palette — no
+global theme object to configure, no hidden styling state. One naming rule
+holds across the whole API:
+
+- `color` — a single plain `Color` (label text, icon lines)
+- `colors` — a `Widget_Color` five-state palette (`bg`, `fg`, `hover`,
+  `press`, `focus`) on interactive widgets; each widget documents what its
+  slots control
+- `text_color` — glyph color on composite widgets (button, checkbox, dropdown, ...)
+- `bg_color` — flat background fill on containers and labels
+
+Interactive widgets (`button`, `checkbox`, `slider`, `dropdown`,
+`menu_button`, `text_input`) also accept `disabled = true`, which blocks
+interaction and renders the widget dimmed.
+
+Scale follows two documented conventions: text widgets take a font scale
+defaulting to `DEFAULT_FONT_SCALE`, while composite widgets whose geometry
+scales as a whole (checkbox, slider, icons) take a widget multiplier
+defaulting to `1.0` and draw their text at `scale * DEFAULT_FONT_SCALE`.
 
 ## Animations
 

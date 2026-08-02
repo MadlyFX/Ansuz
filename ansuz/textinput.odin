@@ -13,10 +13,10 @@ Text_Input_State :: struct {
 	scroll_y:         f32, // vertical scroll offset (multiline)
 }
 
-THEME_TEXTINPUT_BG           :: Color{35, 38, 45, 255}
-THEME_TEXTINPUT_FOCUS_BORDER :: Color{80, 140, 220, 255}
-THEME_TEXTINPUT_CURSOR       :: Color{200, 210, 230, 255}
+TEXT_INPUT_DEFAULT_SIZE :: [2]Size_Spec{Size_Spec{.Fixed, 200}, SIZE_FIT}
 
+// colors slots: bg = field fill, fg = resting border, hover = hovered border,
+// focus = focused border (press is unused).
 text_input :: proc(
 	mgr:         ^Manager,
 	buf:         ^[dynamic]u8,
@@ -26,10 +26,10 @@ text_input :: proc(
 	wrap:        bool         = false,
 	font:        Font_Handle  = FONT_DEFAULT,
 	scale:       f32          = DEFAULT_FONT_SCALE,
-	size:        [2]Size_Spec = FIXED_200_FIT,
+	size:        [2]Size_Spec = TEXT_INPUT_DEFAULT_SIZE,
 	padding:     [4]f32       = {6, 8, 6, 8},
 	placeholder: string       = "",
-	color: Widget_Color = Widget_Color{
+	colors: Widget_Color = Widget_Color{
 		bg    = THEME_TEXTINPUT_BG,
 		fg    = THEME_BORDER,
 		hover = THEME_TEXTINPUT_FOCUS_BORDER,
@@ -38,7 +38,9 @@ text_input :: proc(
 	text_color: Color = THEME_TEXT,
 	placeholder_color: Color = THEME_TEXT_DIM,
 	cursor_color: Color = THEME_TEXTINPUT_CURSOR,
-	selection_color: Color = Color{80, 140, 220, 110},
+	selection_color: Color = THEME_SELECTION,
+	corner_radius: f32 = -1, // negative = derive from scale
+	disabled: bool = false,
 	loc          := #caller_location,
 ) -> (Interaction, ^Text_Input_State) {
 	effective_font := resolve_font(mgr, font)
@@ -53,7 +55,12 @@ text_input :: proc(
 		prev_rect = state.prev_rect
 	}
 
-	interaction := compute_interaction(mgr, id, prev_rect)
+	interaction: Interaction
+	if disabled {
+		release_interaction(mgr, id)
+	} else {
+		interaction = compute_interaction(mgr, id, prev_rect)
+	}
 
 	// Focus on press (not click) so it reclaims immediately after frame_begin clears focus
 	if .Pressed in interaction {
@@ -321,12 +328,16 @@ text_input :: proc(
 	// Visual styling
 	hover_t := get_hover_t(mgr, id, .Hovered in interaction)
 	focus_t := get_focus_t(mgr, id, is_focused)
-	border_base := color_lerp(color.fg, color.hover, hover_t)
-	border := color_lerp(border_base, color.focus, focus_t)
+	border_base := color_lerp(colors.fg, colors.hover, hover_t)
+	border := color_lerp(border_base, colors.focus, focus_t)
 
 	// Display text (show placeholder if buffer is empty)
 	display_text := folded if len(buf^) > 0 else placeholder
 	display_color := text_color if len(buf^) > 0 else placeholder_color
+	if disabled {
+		border = disabled_color(colors.fg)
+		display_color = disabled_color(display_color)
+	}
 	// Compute size
 	actual_size := size
 	line_h := get_line_height(mgr, effective_font, scale)
@@ -345,11 +356,11 @@ text_input :: proc(
 		}
 	}
 
-	idx := box(mgr, size = actual_size, bg_color = color.bg, loc = loc)
+	idx := box(mgr, size = actual_size, bg_color = colors.bg, loc = loc)
 	mgr.boxes[idx].padding = padding
 	mgr.boxes[idx].border_width = max(1, 1.5 * (scale / DEFAULT_FONT_SCALE))
 	mgr.boxes[idx].border_color = border
-	mgr.boxes[idx].corner_radius = max(1, 4 * (scale / DEFAULT_FONT_SCALE))
+	mgr.boxes[idx].corner_radius = corner_radius if corner_radius >= 0 else max(1, 4 * (scale / DEFAULT_FONT_SCALE))
 
 	// Defer text drawing (clipped to content rect for overflow)
 	append(&mgr.deferred_texts, Deferred_Text{

@@ -60,6 +60,10 @@ Manager :: struct {
 	active_id:        Widget_ID,
 	focus_id:         Widget_ID,
 
+	// Text inputs registered this frame, in render order. Enables Tab-to-next-field
+	// focus cycling (see focus_cycle). Rebuilt every frame.
+	focus_order:      [dynamic]Widget_ID,
+
 	// ID generation stack
 	id_stack:         ID_Stack,
 
@@ -101,14 +105,18 @@ Manager :: struct {
 
 	// Tracks deepest scroll container under mouse cursor for wheel routing
 	scroll_wheel_candidate: Widget_ID,
-
-	// Sequence counter for generating unique IDs within a single call site (loops)
-	seq_counter:      int,
+	// Set while a scrollbar thumb is held. The bar is drawn over the container it
+	// scrolls, so for as long as it has the pointer nothing underneath may take
+	// the press as its own (see compute_interaction).
+	scrollbar_drag:         bool,
 
 	// Tree widget nesting — current depth and, per ancestor level, whether the
 	// guide line continues past this row (that level's node has later siblings)
 	tree_depth:       int,
 	tree_continues:   [TREE_MAX_DEPTH]bool,
+
+	// Sequence counter for generating unique IDs within a single call site (loops)
+	seq_counter:      int,
 
 	// Loaded fonts (index 0 = Font_Handle(1), etc.)
 	fonts:            [dynamic]Font,
@@ -139,6 +147,7 @@ init :: proc(mgr: ^Manager, backend: ^Backend) {
 	draw_list_init(&mgr.draw_list)
 	mgr.deferred_texts = make([dynamic]Deferred_Text, 0, INIT_CAP_DEFER)
 	mgr.widget_box_map = make([dynamic]Widget_Box_Entry, 0, INIT_CAP_DEFER)
+	mgr.focus_order    = make([dynamic]Widget_ID, 0, 16)
 	mgr.deferred_draws = make([dynamic]Deferred_Draw, 0, INIT_CAP_DEFER)
 	mgr.popup_draws    = make([dynamic]Popup_Draw, 0, 4)
 	mgr.text_states    = make(map[Widget_ID]Text_Input_State, 16)
@@ -160,6 +169,7 @@ shutdown :: proc(mgr: ^Manager) {
 	delete(mgr.box_stack)
 	delete(mgr.deferred_texts)
 	delete(mgr.widget_box_map)
+	delete(mgr.focus_order)
 	delete(mgr.deferred_draws)
 	delete(mgr.popup_draws)
 	delete(mgr.text_states)
@@ -185,13 +195,16 @@ frame_begin :: proc(mgr: ^Manager, dt: f32 = -1) {
 	draw_list_clear(&mgr.draw_list)
 	clear(&mgr.deferred_texts)
 	clear(&mgr.widget_box_map)
+	clear(&mgr.focus_order)
 	clear(&mgr.deferred_draws)
 	clear(&mgr.popup_draws)
 	mgr.seq_counter = 0
-	mgr.tree_depth = 0
 	mgr.hot_id = ID_NONE
+	mgr.tree_depth = 0
 	mgr.scroll_wheel_candidate = ID_NONE
 	mgr.popup_consumed_scroll = false
+	// Re-armed by whichever scroll container still has the pointer this frame.
+	mgr.scrollbar_drag = false
 
 	mgr.frame_id += 1
 
@@ -346,6 +359,9 @@ emit_deferred_texts :: proc(mgr: ^Manager, floating: bool) {
 		}
 		b := &mgr.boxes[dt.box_index]
 		text_size := measure_text(mgr, dt.text, dt.font, dt.scale)
+		if len(dt.runs) > 0 {
+			text_size = styled_runs_size(dt.runs, dt.run_lines, dt.run_line_height)
+		}
 		eff_scale := get_effective_scale(mgr, dt.font, dt.scale)
 		cr := b.content_rect
 
@@ -369,6 +385,11 @@ emit_deferred_texts :: proc(mgr: ^Manager, floating: bool) {
 		}
 		if dt.center_v {
 			ty = cr.y + (cr.h - text_size.y) / 2
+		}
+
+		if len(dt.runs) > 0 {
+			emit_styled_runs(mgr, dt, {tx, ty})
+			continue
 		}
 
 		if dt.selection_end > dt.selection_start && len(dt.text) > 0 {
@@ -460,6 +481,35 @@ pop_id :: proc(mgr: ^Manager) {
 	id_stack_pop(&mgr.id_stack)
 }
 
+// Move keyboard focus to the next (or previous, when backward) text input that
+// registered itself this frame. Cycling is confined to the focus_order slice
+// [lo, hi) so a caller can scope Tab traversal to a single form; pass 0 and
+// len(mgr.focus_order) to cycle across every input. Wraps around at the ends,
+// and starts from the first (or last) entry when nothing in range is focused.
+focus_cycle :: proc(mgr: ^Manager, lo, hi: int, backward := false) {
+	lo := clamp(lo, 0, len(mgr.focus_order))
+	hi := clamp(hi, lo, len(mgr.focus_order))
+	n := hi - lo
+	if n <= 0 {
+		return
+	}
+	current := -1
+	for i in lo..<hi {
+		if mgr.focus_order[i] == mgr.focus_id {
+			current = i - lo
+			break
+		}
+	}
+	next: int
+	if current < 0 {
+		next = n - 1 if backward else 0
+	} else {
+		step := n - 1 if backward else 1
+		next = (current + step) % n
+	}
+	mgr.focus_id = mgr.focus_order[lo + next]
+}
+
 // --- Internal ---
 
 // Recursive tree walk for draw emission. Handles clip push/pop for scroll containers.
@@ -480,9 +530,19 @@ emit_box_tree :: proc(
 		draw_self = !include_floating
 	}
 
-	// Store effective clip so deferred draws (text, sliders, etc.) can use it
-	b.effective_clip = parent_clip
-	b.is_clipped = parent_is_clipped
+	// Store effective clip so deferred draws (text, sliders, etc.) can use it.
+	// Only the pass that actually draws this box owns that bookkeeping: the tree
+	// is walked twice (normal, then floating), and writing here on every visit
+	// let the floating pass — which clips nothing, because a non-floating
+	// container's draw_self is false in it — erase the normal pass's clip for
+	// every scrolled widget in the app. frame_end snapshots these into
+	// has_prev_clip/prev_clip afterwards, so that erasure silently disabled the
+	// hit test's clip guard: a row scrolled out of its viewport kept a live rect
+	// and took presses meant for whatever is laid out below the container.
+	if draw_self {
+		b.effective_clip = parent_clip
+		b.is_clipped = parent_is_clipped
+	}
 
 	// Draw background
 	if draw_self && b.bg_color.a > 0 {
@@ -532,8 +592,8 @@ box_is_floating :: proc(mgr: ^Manager, idx: int) -> bool {
 
 // Load a TrueType font from raw TTF file data, rasterize it at the given pixel size,
 // and upload it to the backend. Backends without a font upload hook stay bitmap-only.
-// Pass antialiasing = .None for hard-edged, unantialiased glyphs.
 // Returns a Font_Handle for use with set_default_font.
+// Pass antialiasing = .None for hard-edged, unantialiased glyphs.
 when ODIN_OS != .Freestanding {
 	load_font :: proc(
 		mgr: ^Manager,

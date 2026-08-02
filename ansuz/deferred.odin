@@ -10,9 +10,23 @@ Deferred_Draw_Kind :: enum {
 	Dropdown_Arrow,
 	Disclosure_Icon,
 	Hamburger_Icon,
+	Window_Icon,
 	Image,
 	Text_Cursor,
 	Scrollbar,
+}
+
+// Native window-control glyphs for a custom (client-drawn) title bar.
+Window_Icon_Glyph :: enum {
+	Minimize,
+	Maximize,
+	Restore,
+	Close,
+}
+
+Deferred_Window_Icon_Data :: struct {
+	glyph: Window_Icon_Glyph,
+	color: Color,
 }
 
 Deferred_Slider_Data :: struct {
@@ -58,6 +72,13 @@ Deferred_Scrollbar_Data :: struct {
 	offset:   f32,
 	content:  f32,
 	viewport: f32,
+	width:    f32,
+	inset:    f32,
+	// bg is the track, fg the thumb; hover and press are the thumb's states under
+	// the pointer (see scroll_begin, which does the hit testing).
+	color:    Widget_Color,
+	hovered:  bool,
+	active:   bool,
 }
 
 Deferred_Draw :: struct {
@@ -69,6 +90,7 @@ Deferred_Draw :: struct {
 	dropdown:    Deferred_Dropdown_Data,
 	disclosure:  Deferred_Disclosure_Data,
 	hamburger:   Deferred_Hamburger_Data,
+	window_icon: Deferred_Window_Icon_Data,
 	image:       Deferred_Image_Data,
 	text_cursor: Deferred_Text_Cursor_Data,
 	scrollbar:   Deferred_Scrollbar_Data,
@@ -157,6 +179,9 @@ emit_deferred_draws :: proc(mgr: ^Manager, floating: bool = false) {
 		case .Hamburger_Icon:
 			emit_hamburger_icon(mgr, r, dd.hamburger, s)
 
+		case .Window_Icon:
+			emit_window_icon(mgr, r, dd.window_icon, s)
+
 		case .Image:
 			emit_image_draw(mgr, r, dd.image)
 
@@ -209,6 +234,41 @@ emit_hamburger_icon :: proc(mgr: ^Manager, rect: Rect, data: Deferred_Hamburger_
 			data.color,
 			thickness,
 		)
+	}
+}
+
+// Draw a native-style window control glyph (minimize / maximize / restore /
+// close) centered in the button rect. Coordinates are pixel-snapped so the thin
+// square outlines and strokes stay crisp at the physical resolution.
+emit_window_icon :: proc(mgr: ^Manager, rect: Rect, data: Deferred_Window_Icon_Data, scale: f32 = 1.0) {
+	// A ~10px glyph reads well against the 46x40 hit target used by the title bar.
+	s := f32(int(min(rect.w, rect.h) * 0.26))
+	if s < 5 {
+		s = 5
+	}
+	cx := f32(int(rect.x + rect.w * 0.5))
+	cy := f32(int(rect.y + rect.h * 0.5))
+	thickness := max(f32(1), 1.3 * scale)
+
+	switch data.glyph {
+	case .Minimize:
+		y := cy
+		push_line(&mgr.draw_list, Vec2{cx - s, y}, Vec2{cx + s, y}, data.color, thickness)
+
+	case .Maximize:
+		push_rect_outline(&mgr.draw_list, Rect{cx - s, cy - s, s * 2, s * 2}, data.color, thickness)
+
+	case .Restore:
+		// Two overlapping square outlines, like the OS "restore down" glyph: a
+		// back square offset up-and-right behind the front square.
+		off := f32(int(s * 0.6))
+		side := s * 2 - off
+		push_rect_outline(&mgr.draw_list, Rect{cx - s + off, cy - s, side, side}, data.color, thickness)
+		push_rect_outline(&mgr.draw_list, Rect{cx - s, cy - s + off, side, side}, data.color, thickness)
+
+	case .Close:
+		push_line(&mgr.draw_list, Vec2{cx - s, cy - s}, Vec2{cx + s, cy + s}, data.color, thickness)
+		push_line(&mgr.draw_list, Vec2{cx - s, cy + s}, Vec2{cx + s, cy - s}, data.color, thickness)
 	}
 }
 
@@ -442,39 +502,16 @@ emit_text_cursor_draw :: proc(mgr: ^Manager, cr: Rect, data: Deferred_Text_Curso
 emit_scrollbar_draw :: proc(mgr: ^Manager, rect: Rect, data: Deferred_Scrollbar_Data) {
 	if data.content <= 0 || data.viewport <= 0 { return }
 
-	bar_w := SCROLLBAR_WIDTH
-	ratio := data.viewport / data.content
-	max_scroll := data.content - data.viewport
-	scroll_ratio := data.offset / max_scroll if max_scroll > 0 else 0
-
-	if data.axis == .Horizontal {
-		// Bottom-aligned horizontal scrollbar
-		track_rect := Rect{
-			rect.x + 2,
-			rect.y + rect.h - bar_w - 2,
-			rect.w - 4,
-			bar_w,
-		}
-		push_filled_rect(&mgr.draw_list, track_rect, THEME_SCROLLBAR_BG, bar_w / 2)
-
-		thumb_w := max(20, track_rect.w * ratio)
-		thumb_x := track_rect.x + (track_rect.w - thumb_w) * scroll_ratio
-		thumb_rect := Rect{thumb_x, track_rect.y, thumb_w, bar_w}
-		push_filled_rect(&mgr.draw_list, thumb_rect, THEME_SCROLLBAR_THUMB, bar_w / 2)
-		return
+	bar_w := data.width if data.width > 0 else SCROLLBAR_WIDTH
+	track_rect, thumb_rect := scrollbar_rects(
+		rect, data.axis, data.offset, data.content, data.viewport, bar_w, data.inset,
+	)
+	thumb_color := data.color.fg
+	if data.active {
+		thumb_color = data.color.press
+	} else if data.hovered {
+		thumb_color = data.color.hover
 	}
-
-	// Right-aligned vertical scrollbar
-	track_rect := Rect{
-		rect.x + rect.w - bar_w - 2,
-		rect.y + 2,
-		bar_w,
-		rect.h - 4,
-	}
-	push_filled_rect(&mgr.draw_list, track_rect, THEME_SCROLLBAR_BG, bar_w / 2)
-
-	thumb_h := max(20, track_rect.h * ratio)
-	thumb_y := track_rect.y + (track_rect.h - thumb_h) * scroll_ratio
-	thumb_rect := Rect{track_rect.x, thumb_y, bar_w, thumb_h}
-	push_filled_rect(&mgr.draw_list, thumb_rect, THEME_SCROLLBAR_THUMB, bar_w / 2)
+	push_filled_rect(&mgr.draw_list, track_rect, data.color.bg, bar_w / 2)
+	push_filled_rect(&mgr.draw_list, thumb_rect, thumb_color, bar_w / 2)
 }

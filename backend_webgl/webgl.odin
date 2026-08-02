@@ -1,7 +1,7 @@
 package ansuz_backend_webgl
 
-import gl "vendor:wasm/WebGL"
 import "core:math"
+import gl "vendor:wasm/WebGL"
 import ansuz "../ansuz"
 
 // --- WebGL Backend ---
@@ -9,7 +9,10 @@ import ansuz "../ansuz"
 // Uses a simple 2D colored-quad shader. Text is rendered using
 // the built-in bitmap font uploaded as a WebGL texture.
 
-CANVAS_ID :: "ansuz-canvas"
+// Configurable so a page can host more than one WebGL backend instance (e.g. the
+// full app on "ansuz-canvas" plus a scoped preview on another canvas). Override
+// at build time with -define:ANSUZ_CANVAS_ID=your-canvas-id.
+CANVAS_ID :: #config(ANSUZ_CANVAS_ID, "ansuz-canvas")
 MAX_VERTICES :: 16384
 
 Vertex :: struct {
@@ -74,10 +77,17 @@ create :: proc(width, height: i32) -> ansuz.Backend {
 
 // Update the logical window size after the browser host resizes the canvas.
 // The backing-buffer size is read from WebGL at the start of each frame so it
-// can independently follow devicePixelRatio.
-resize :: proc(backend: ^ansuz.Backend, width, height: i32) {
-	w := max(width, 1)
-	h := max(height, 1)
+// can independently follow devicePixelRatio. A zoom below 1 inflates the
+// logical resolution relative to the canvas's CSS size, rendering the whole UI
+// proportionally smaller; the host must divide input coordinates by the same
+// factor.
+resize :: proc(backend: ^ansuz.Backend, width, height: i32, zoom: f32 = 1) {
+	z := zoom
+	if z <= 0 {
+		z = 1
+	}
+	w := max(i32(f32(max(width, 1)) / z + 0.5), 1)
+	h := max(i32(f32(max(height, 1)) / z + 0.5), 1)
 	data := cast(^WebGL_Data)backend.user_data
 	data.width = f32(w)
 	data.height = f32(h)
@@ -551,10 +561,6 @@ draw_text_ttf_webgl :: proc(data: ^WebGL_Data, pos: ansuz.Vec2, text: string, co
 	cursor_x := pos.x
 	cursor_y := pos.y
 	start_x := pos.x
-
-	atlas_w := f32(font.atlas_width)
-	atlas_h := f32(font.atlas_height)
-
 	// Glyph advances are fractional, so unsnapped quads land between pixels
 	// and linear filtering smears the atlas texels, softening text that was
 	// rasterized for 1:1 display. Snap each glyph origin to a physical pixel
@@ -563,6 +569,9 @@ draw_text_ttf_webgl :: proc(data: ^WebGL_Data, pos: ansuz.Vec2, text: string, co
 	if density <= 0 {
 		density = 1
 	}
+
+	atlas_w := f32(font.atlas_width)
+	atlas_h := f32(font.atlas_height)
 
 	for ch in text {
 		if ch == '\n' {

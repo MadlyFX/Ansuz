@@ -109,6 +109,48 @@ set_constraints_f32 :: proc(mgr: ^Manager, id: Widget_ID, lo, hi: f32, wrap: boo
 	ws.wrap = wrap
 }
 
+// widget_prev_rect returns a widget's rect as resolved on the previous frame,
+// or ok=false if the widget was not present last frame. Useful for hit testing
+// a container (composer, scrollbox) against a pointer position from the host.
+widget_prev_rect :: proc(mgr: ^Manager, id: Widget_ID) -> (Rect, bool) {
+	if ws, ok := mgr.widget_states[id]; ok {
+		return ws.prev_rect, true
+	}
+	return Rect{}, false
+}
+
+// track_box_rect registers `box_idx` under `id` so that, after layout, its
+// resolved rect is recorded and can be read next frame via widget_prev_rect.
+// Non-interactive boxes (e.g. labels) are not tracked by default; call this to
+// give one prev-frame bounds, which immediate-mode callers need for width-
+// dependent decisions such as wrapping text to the column's actual width.
+track_box_rect :: proc(mgr: ^Manager, id: Widget_ID, box_idx: int) {
+	get_or_create_widget_state(mgr, id)
+	append(&mgr.widget_box_map, Widget_Box_Entry{id = id, box_index = box_idx})
+}
+
+// current_box_id returns the id of the box currently on top of the build stack,
+// i.e. the container most recently opened with a *_begin call. Pair it with
+// widget_prev_rect to read that container's last-frame bounds.
+current_box_id :: proc(mgr: ^Manager) -> Widget_ID {
+	if len(mgr.box_stack) == 0 {
+		return ID_NONE
+	}
+	return mgr.boxes[mgr.box_stack[len(mgr.box_stack) - 1]].id
+}
+
+// last_widget_id returns the id of the most recently emitted interactive widget
+// (button, checkbox, text input, …), or ID_NONE if none has been emitted yet
+// this frame. Read it right after a widget call, then pass it to widget_prev_rect
+// to recover that widget's last-frame bounds (leaf widgets, unlike containers,
+// are not reachable through current_box_id).
+last_widget_id :: proc(mgr: ^Manager) -> Widget_ID {
+	if len(mgr.widget_box_map) == 0 {
+		return ID_NONE
+	}
+	return mgr.widget_box_map[len(mgr.widget_box_map) - 1].id
+}
+
 // --- Internal ---
 
 // Get or create a widget state entry. Returns a pointer into the map.

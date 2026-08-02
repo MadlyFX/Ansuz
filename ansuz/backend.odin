@@ -85,6 +85,7 @@ Input_State :: struct {
 	// Modifier held states
 	key_shift:     bool,
 	key_ctrl:      bool,
+	key_alt:       bool,
 
 	// Mouse scroll wheel (positive = scroll up/towards user)
 	mouse_scroll_y: f32,

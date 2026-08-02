@@ -21,6 +21,9 @@ text_input :: proc(
 	mgr:         ^Manager,
 	buf:         ^[dynamic]u8,
 	multiline:   bool         = false,
+	// Fold long lines to the field's own column (multiline only). Without it a
+	// line runs off the right edge with nothing to scroll it back into view.
+	wrap:        bool         = false,
 	font:        Font_Handle  = FONT_DEFAULT,
 	scale:       f32          = DEFAULT_FONT_SCALE,
 	size:        [2]Size_Spec = FIXED_200_FIT,
@@ -40,6 +43,9 @@ text_input :: proc(
 ) -> (Interaction, ^Text_Input_State) {
 	effective_font := resolve_font(mgr, font)
 	id := id_from_ptr_loc(&mgr.id_stack, buf, loc)
+
+	// Record this field in the frame's focus order so Tab can cycle between inputs.
+	append(&mgr.focus_order, id)
 
 	// Look up previous frame's rect for hit testing
 	prev_rect := Rect{}
@@ -67,12 +73,29 @@ text_input :: proc(
 	ts.cursor = clamp(ts.cursor, 0, len(buf^))
 	ts.selection_anchor = clamp(ts.selection_anchor, 0, len(buf^))
 
+	// Where the text folds to fit the column, as byte offsets into the buffer.
+	// The buffer itself is never rewritten, so the cursor, the selection and every
+	// edit below stay in buffer coordinates; only what is drawn, hit-tested and
+	// stepped over vertically works in the folded form. The column comes from last
+	// frame's rect, so a resized field settles on the next one.
+	content_w := prev_rect.w - padding[1] - padding[3]
+	soft_wrap := multiline && wrap && content_w > 0
+	breaks: []int
+	if soft_wrap {
+		breaks = soft_wrap_offsets(mgr, string(buf^[:]), content_w, effective_font, scale)
+	}
+
 	// Click and drag establish a real selection. Shift-click extends the current
 	// selection instead of replacing its anchor.
-	if mgr.input.mouse_left_pressed && .Pressed in interaction && prev_rect.w > 0 {
+	if (mgr.input.mouse_left_pressed && .Pressed in interaction || ts.dragging && mgr.input.mouse_left) &&
+	   prev_rect.w > 0 {
+		hit_text := string(buf^[:])
+		if soft_wrap {
+			hit_text = wrapped_text(hit_text, breaks)
+		}
 		position := text_input_hit_cursor(
 			mgr,
-			string(buf^[:]),
+			hit_text,
 			multiline,
 			effective_font,
 			scale,
@@ -83,25 +106,16 @@ text_input :: proc(
 			mgr.input.mouse_x,
 			mgr.input.mouse_y,
 		)
-		if !mgr.input.key_shift {
-			ts.selection_anchor = position
+		if soft_wrap {
+			position = wrap_buffer_index(breaks, position)
+		}
+		if mgr.input.mouse_left_pressed {
+			if !mgr.input.key_shift {
+				ts.selection_anchor = position
+			}
+			ts.dragging = true
 		}
 		ts.cursor = position
-		ts.dragging = true
-	} else if ts.dragging && mgr.input.mouse_left && prev_rect.w > 0 {
-		ts.cursor = text_input_hit_cursor(
-			mgr,
-			string(buf^[:]),
-			multiline,
-			effective_font,
-			scale,
-			prev_rect,
-			padding,
-			ts.scroll_x,
-			ts.scroll_y,
-			mgr.input.mouse_x,
-			mgr.input.mouse_y,
-		)
 	}
 	if !mgr.input.mouse_left {
 		ts.dragging = false
@@ -190,25 +204,13 @@ text_input :: proc(
 
 		// Home
 		if mgr.input.key_home {
-			if multiline {
-				pos := ts.cursor - 1
-				for pos >= 0 && buf^[pos] != '\n' { pos -= 1 }
-				ts.cursor = pos + 1
-			} else {
-				ts.cursor = 0
-			}
+			ts.cursor = visual_line_start(string(buf^[:]), breaks, ts.cursor) if multiline else 0
 			if !mgr.input.key_shift { ts.selection_anchor = ts.cursor }
 		}
 
 		// End
 		if mgr.input.key_end {
-			if multiline {
-				pos := ts.cursor
-				for pos < len(buf^) && buf^[pos] != '\n' { pos += 1 }
-				ts.cursor = pos
-			} else {
-				ts.cursor = len(buf^)
-			}
+			ts.cursor = visual_line_end(string(buf^[:]), breaks, ts.cursor) if multiline else len(buf^)
 			if !mgr.input.key_shift { ts.selection_anchor = ts.cursor }
 		}
 
@@ -224,40 +226,27 @@ text_input :: proc(
 			ts.selection_anchor = ts.cursor
 		}
 
-		// Up/Down for multiline
+		// Up/Down for multiline. Both step a visual line, so a folded line is walked
+		// the way it reads rather than jumping over the whole paragraph it belongs to.
 		if multiline {
+			text := string(buf^[:])
 			if mgr.input.key_up {
-				col := 0
-				pos := ts.cursor - 1
-				for pos >= 0 && buf^[pos] != '\n' {
-					col += 1
-					pos -= 1
-				}
-				if pos >= 0 {
-					prev_end := pos
-					pos -= 1
-					for pos >= 0 && buf^[pos] != '\n' { pos -= 1 }
-					prev_start := pos + 1
-					prev_len := prev_end - prev_start
-					ts.cursor = prev_start + min(col, prev_len)
+				start := visual_line_start(text, breaks, ts.cursor)
+				if start > 0 {
+					previous := visual_line_start(text, breaks, start - 1)
+					length := visual_line_end(text, breaks, previous) - previous
+					ts.cursor = previous + min(ts.cursor - start, length)
 				}
 				if !mgr.input.key_shift { ts.selection_anchor = ts.cursor }
 			}
 			if mgr.input.key_down {
-				col := 0
-				pos := ts.cursor - 1
-				for pos >= 0 && buf^[pos] != '\n' {
-					col += 1
-					pos -= 1
-				}
-				pos = ts.cursor
-				for pos < len(buf^) && buf^[pos] != '\n' { pos += 1 }
-				if pos < len(buf^) {
-					next_start := pos + 1
-					next_end := next_start
-					for next_end < len(buf^) && buf^[next_end] != '\n' { next_end += 1 }
-					next_len := next_end - next_start
-					ts.cursor = next_start + min(col, next_len)
+				end := visual_line_end(text, breaks, ts.cursor)
+				if end < len(text) {
+					column := ts.cursor - visual_line_start(text, breaks, ts.cursor)
+					// A hard break is a byte to step over; a soft one is not.
+					next := end + 1 if text[end] == '\n' else end
+					length := visual_line_end(text, breaks, next) - next
+					ts.cursor = next + min(column, length)
 				}
 				if !mgr.input.key_shift { ts.selection_anchor = ts.cursor }
 			}
@@ -267,6 +256,14 @@ text_input :: proc(
 	// Clamp cursor and selection after edits or external buffer changes.
 	ts.cursor = clamp(ts.cursor, 0, len(buf^))
 	ts.selection_anchor = clamp(ts.selection_anchor, 0, len(buf^))
+
+	// The keystrokes above may have rewritten the buffer, so fold it again before
+	// anything below counts, scrolls or draws its lines.
+	folded := string(buf^[:])
+	if soft_wrap {
+		breaks = soft_wrap_offsets(mgr, folded, content_w, effective_font, scale)
+		folded = wrapped_text(folded, breaks)
+	}
 
 	// Auto-scroll for single-line: keep cursor visible within the content area
 	if !multiline && prev_rect.w > 0 {
@@ -293,6 +290,10 @@ text_input :: proc(
 				cursor_line += 1
 			}
 		}
+		for b in breaks {
+			if b > ts.cursor { break }
+			cursor_line += 1
+		}
 		cursor_y_top := f32(cursor_line) * line_h
 		cursor_y_bot := cursor_y_top + line_h
 
@@ -305,6 +306,14 @@ text_input :: proc(
 			if cursor_y_top < ts.scroll_y {
 				ts.scroll_y = cursor_y_top
 			}
+			// Never hold an offset the text no longer needs. A field that grows to
+			// fit its content — or loses lines to an edit — would otherwise keep
+			// scrolling the top of it out of sight above the box.
+			line_count := 1 + len(breaks)
+			for ch in buf^ {
+				if ch == '\n' { line_count += 1 }
+			}
+			ts.scroll_y = min(ts.scroll_y, max(0, f32(line_count) * line_h - viewport_h))
 		}
 		ts.scroll_y = max(ts.scroll_y, 0)
 	}
@@ -316,7 +325,7 @@ text_input :: proc(
 	border := color_lerp(border_base, color.focus, focus_t)
 
 	// Display text (show placeholder if buffer is empty)
-	display_text := string(buf^[:]) if len(buf^) > 0 else placeholder
+	display_text := folded if len(buf^) > 0 else placeholder
 	display_color := text_color if len(buf^) > 0 else placeholder_color
 	// Compute size
 	actual_size := size
@@ -327,7 +336,7 @@ text_input :: proc(
 		}
 	} else {
 		if actual_size[1].kind == .Fit {
-			line_count := 1
+			line_count := 1 + len(breaks)
 			for ch in buf^ {
 				if ch == '\n' { line_count += 1 }
 			}
@@ -354,8 +363,10 @@ text_input :: proc(
 		clip      = true,
 		offset_x  = -ts.scroll_x if !multiline else 0,
 		offset_y  = -ts.scroll_y if multiline else 0,
-		selection_start = min(ts.cursor, ts.selection_anchor) if len(buf^) > 0 else 0,
-		selection_end   = max(ts.cursor, ts.selection_anchor) if len(buf^) > 0 else 0,
+		// Everything drawn works in the folded text's coordinates, so the buffer
+		// offsets the selection is stored at are mapped over to it.
+		selection_start = wrap_display_index(breaks, min(ts.cursor, ts.selection_anchor)) if len(buf^) > 0 else 0,
+		selection_end   = wrap_display_index(breaks, max(ts.cursor, ts.selection_anchor)) if len(buf^) > 0 else 0,
 		selection_color = selection_color,
 	})
 
@@ -366,9 +377,9 @@ text_input :: proc(
 			kind        = .Text_Cursor,
 			scale       = scale,
 			text_cursor = Deferred_Text_Cursor_Data{
-				cursor_pos = ts.cursor,
+				cursor_pos = wrap_display_index(breaks, ts.cursor),
 				multiline  = multiline,
-				text       = string(buf^[:]),
+				text       = folded,
 				font       = effective_font,
 				color      = cursor_color,
 				offset_x   = -ts.scroll_x if !multiline else 0,
@@ -382,6 +393,92 @@ text_input :: proc(
 	append(&mgr.widget_box_map, Widget_Box_Entry{id = id, box_index = idx})
 
 	return interaction, ts
+}
+
+// --- Soft-wrapped editing -------------------------------------------------
+// A wrapped field folds its text for display only and leaves the buffer alone,
+// so every index it stores stays a buffer index. `breaks` is what
+// soft_wrap_offsets returned for that buffer; an empty one makes all of these
+// degrade to plain hard-break behavior, which is exactly what an unwrapped
+// multiline field wants.
+
+// wrapped_text returns `text` with a newline inserted at each soft break — the
+// form the renderer, the caret and hit testing all work in.
+wrapped_text :: proc(text: string, breaks: []int, allocator := context.temp_allocator) -> string {
+	if len(breaks) == 0 {
+		return text
+	}
+	out := make([dynamic]u8, 0, len(text) + len(breaks), allocator)
+	next := 0
+	for i in 0 ..< len(text) {
+		for next < len(breaks) && breaks[next] <= i {
+			append(&out, '\n')
+			next += 1
+		}
+		append(&out, text[i])
+	}
+	return string(out[:])
+}
+
+// wrap_display_index maps a buffer index to the same spot in the wrapped text.
+// An index sitting exactly on a break lands after the inserted newline, i.e. at
+// the head of the continuation rather than off the end of the line above it.
+wrap_display_index :: proc(breaks: []int, index: int) -> int {
+	shift := 0
+	for b in breaks {
+		if b > index { break }
+		shift += 1
+	}
+	return index + shift
+}
+
+// wrap_buffer_index maps an index in the wrapped text back to the buffer. A
+// click landing on an inserted newline resolves to the end of the line it broke.
+wrap_buffer_index :: proc(breaks: []int, index: int) -> int {
+	shift := 0
+	for b, i in breaks {
+		if b + i >= index { break }
+		shift += 1
+	}
+	return index - shift
+}
+
+// visual_line_start returns where the line `index` sits on begins: after the
+// nearest newline before it, or at the soft break that opened it.
+visual_line_start :: proc(text: string, breaks: []int, index: int) -> int {
+	position := clamp(index, 0, len(text))
+	start := 0
+	for i := position - 1; i >= 0; i -= 1 {
+		if text[i] == '\n' {
+			start = i + 1
+			break
+		}
+	}
+	for b in breaks {
+		if b > position { break }
+		if b > start { start = b }
+	}
+	return start
+}
+
+// visual_line_end returns where that line ends: at the next newline, the next
+// soft break, or the end of the text.
+visual_line_end :: proc(text: string, breaks: []int, index: int) -> int {
+	position := clamp(index, 0, len(text))
+	end := len(text)
+	for i := position; i < len(text); i += 1 {
+		if text[i] == '\n' {
+			end = i
+			break
+		}
+	}
+	for b in breaks {
+		if b > position && b < end {
+			end = b
+			break
+		}
+	}
+	return end
 }
 
 text_selection_bounds :: proc(ts: ^Text_Input_State) -> (start, end: int, selected: bool) {

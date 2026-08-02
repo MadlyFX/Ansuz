@@ -29,7 +29,23 @@ SDL_Data :: struct {
 	file_drop_completed: bool,
 	builtin_font_texture: ^SDL.Texture,  // 16x16 grid of 5x7 glyphs = 80x112 atlas
 	loaded_fonts:        [dynamic]SDL_Font,
+	// Client-drawn title bar support. When borderless is set (before init) the
+	// OS decoration is dropped and an SDL hit test turns the top strip into a
+	// drag handle plus resizable borders. titlebar_height and controls_width are
+	// in window (logical) coordinates and describe the draggable region: the top
+	// `titlebar_height` pixels, excluding the rightmost `controls_width` pixels
+	// where the app draws its own minimize/maximize/close buttons.
+	borderless:          bool,
+	titlebar_height:     i32,
+	controls_width:      i32,
+	// UI zoom: logical resolution is the window size divided by this factor, so a
+	// zoom below 1 renders the whole UI smaller (see set_zoom). Mouse input is
+	// divided by the same factor to stay in logical coordinates.
+	zoom:                f32,
 }
+
+// Width of the invisible resize border around a borderless window, in logical px.
+BORDERLESS_RESIZE_BORDER :: 6
 
 // Create and initialize an SDL3 backend.
 create :: proc(width: i32 = 960, height: i32 = 540, title: cstring = "ansuz") -> ansuz.Backend {
@@ -39,6 +55,7 @@ create :: proc(width: i32 = 960, height: i32 = 540, title: cstring = "ansuz") ->
 
 	data := new(SDL_Data)
 	data.title = title
+	data.zoom = 1
 	backend.user_data = data
 
 	backend.init         = sdl_init
@@ -56,6 +73,141 @@ create :: proc(width: i32 = 960, height: i32 = 540, title: cstring = "ansuz") ->
 	return backend
 }
 
+// Request a borderless (client-decorated) window. Call before init; the flag is
+// read when the SDL window is created.
+set_borderless :: proc(backend: ^ansuz.Backend, borderless: bool) {
+	data := cast(^SDL_Data)backend.user_data
+	if data != nil {
+		data.borderless = borderless
+	}
+}
+
+// Describe the draggable title bar for the hit test, in window (logical) pixels.
+// height is the title bar strip along the top; controls_width is the button
+// cluster on the right that must stay clickable (so it is not part of the drag
+// region).
+set_titlebar_hit_zones :: proc(backend: ^ansuz.Backend, height, controls_width: i32) {
+	data := cast(^SDL_Data)backend.user_data
+	if data != nil {
+		data.titlebar_height = height
+		data.controls_width = controls_width
+	}
+}
+
+// Set the UI zoom. Everything lays out and draws in logical pixels; a zoom
+// below 1 inflates the logical resolution relative to the window so the whole
+// UI renders proportionally smaller. Window metrics are refreshed immediately
+// so the next frame's root box already uses the new logical size.
+set_zoom :: proc(backend: ^ansuz.Backend, zoom: f32) {
+	data := cast(^SDL_Data)backend.user_data
+	if data == nil {
+		return
+	}
+	data.zoom = clamp(zoom, 0.25, 4)
+	sdl_sync_window_metrics(backend)
+}
+
+// The raw OS window size in window coordinates, independent of any zoom. Hosts
+// use it to decide the zoom itself (backend.width already has zoom applied).
+window_size :: proc(backend: ^ansuz.Backend) -> (w, h: i32) {
+	data := cast(^SDL_Data)backend.user_data
+	if data == nil || data.window == nil {
+		return backend.width, backend.height
+	}
+	if !SDL.GetWindowSize(data.window, &w, &h) {
+		return backend.width, backend.height
+	}
+	return
+}
+
+// Reveal a window that was created hidden (borderless startup). Safe to call
+// once the first frame has been presented.
+window_show :: proc(backend: ^ansuz.Backend) {
+	data := cast(^SDL_Data)backend.user_data
+	if data != nil && data.window != nil {
+		SDL.ShowWindow(data.window)
+	}
+}
+
+window_minimize :: proc(backend: ^ansuz.Backend) {
+	data := cast(^SDL_Data)backend.user_data
+	if data != nil && data.window != nil {
+		SDL.MinimizeWindow(data.window)
+	}
+}
+
+// Keep the window above (or no longer above) all other windows. Safe to call
+// every frame; SDL only re-stacks when the flag actually changes.
+window_set_always_on_top :: proc(backend: ^ansuz.Backend, on_top: bool) {
+	data := cast(^SDL_Data)backend.user_data
+	if data != nil && data.window != nil {
+		_ = SDL.SetWindowAlwaysOnTop(data.window, on_top)
+	}
+}
+
+window_is_maximized :: proc(backend: ^ansuz.Backend) -> bool {
+	data := cast(^SDL_Data)backend.user_data
+	if data == nil || data.window == nil {
+		return false
+	}
+	return .MAXIMIZED in SDL.GetWindowFlags(data.window)
+}
+
+window_toggle_maximize :: proc(backend: ^ansuz.Backend) {
+	data := cast(^SDL_Data)backend.user_data
+	if data == nil || data.window == nil {
+		return
+	}
+	if .MAXIMIZED in SDL.GetWindowFlags(data.window) {
+		SDL.RestoreWindow(data.window)
+	} else {
+		SDL.MaximizeWindow(data.window)
+	}
+}
+
+// Ask the app to close by queuing an SDL quit, which the poll loop reports as a
+// quit on the next frame — the same path the OS close button used to take.
+window_request_close :: proc(backend: ^ansuz.Backend) {
+	e := SDL.Event{type = .QUIT}
+	_ = SDL.PushEvent(&e)
+}
+
+// OS hit test for the borderless window. area is in window (logical) coordinates.
+sdl_hit_test :: proc "c" (win: ^SDL.Window, area: ^SDL.Point, userdata: rawptr) -> SDL.HitTestResult {
+	data := cast(^SDL_Data)userdata
+	w, h: i32
+	if !SDL.GetWindowSize(win, &w, &h) {
+		return .NORMAL
+	}
+	x := area.x
+	y := area.y
+
+	// Maximized windows are not resizable from their (screen-flush) edges.
+	if .MAXIMIZED not_in SDL.GetWindowFlags(win) {
+		b := i32(BORDERLESS_RESIZE_BORDER)
+		left   := x < b
+		right  := x >= w - b
+		top    := y < b
+		bottom := y >= h - b
+		switch {
+		case top && left:     return .RESIZE_TOPLEFT
+		case top && right:    return .RESIZE_TOPRIGHT
+		case bottom && left:  return .RESIZE_BOTTOMLEFT
+		case bottom && right: return .RESIZE_BOTTOMRIGHT
+		case left:            return .RESIZE_LEFT
+		case right:           return .RESIZE_RIGHT
+		case top:             return .RESIZE_TOP
+		case bottom:          return .RESIZE_BOTTOM
+		}
+	}
+
+	// The title bar strip drags the window, except over the control buttons.
+	if y < data.titlebar_height && x < w - data.controls_width {
+		return .DRAGGABLE
+	}
+	return .NORMAL
+}
+
 // --- Backend proc implementations ---
 
 sdl_init :: proc(backend: ^ansuz.Backend, width, height: i32) -> bool {
@@ -66,14 +218,28 @@ sdl_init :: proc(backend: ^ansuz.Backend, width, height: i32) -> bool {
 
 	data := cast(^SDL_Data)backend.user_data
 
+	window_flags := SDL.WindowFlags{.RESIZABLE, .HIGH_PIXEL_DENSITY}
+	if data.borderless {
+		// Start hidden so the host can paint the first frame before revealing the
+		// window (see window_show); this avoids a black flash while fonts load and
+		// the initial content is composited.
+		window_flags += {.BORDERLESS, .HIDDEN}
+	}
 	data.window = SDL.CreateWindow(
 		data.title,
 		width, height,
-		{.RESIZABLE, .HIGH_PIXEL_DENSITY},
+		window_flags,
 	)
 	if data.window == nil {
 		fmt.eprintln("SDL.CreateWindow failed:", SDL.GetError())
 		return false
+	}
+
+	// With no OS chrome, an SDL hit test provides the window move/resize behavior
+	// the decoration used to. It classifies the client-drawn title bar as a drag
+	// handle and the window edges as resize borders.
+	if data.borderless {
+		SDL.SetWindowHitTest(data.window, sdl_hit_test, data)
 	}
 
 	data.renderer = SDL.CreateRenderer(data.window, nil)
@@ -144,12 +310,17 @@ sdl_sync_window_metrics :: proc(backend: ^ansuz.Backend) {
 		return
 	}
 
-	backend.width = window_w
-	backend.height = window_h
+	zoom := data.zoom
+	if zoom <= 0 {
+		zoom = 1
+	}
+	backend.width = max(i32(f32(window_w) / zoom + 0.5), 1)
+	backend.height = max(i32(f32(window_h) / zoom + 0.5), 1)
 	data.pixel_density = 1
 	if SDL.GetRenderOutputSize(data.renderer, &output_w, &output_h) && output_w > 0 && output_h > 0 {
-		scale_x := f32(output_w) / f32(window_w)
-		scale_y := f32(output_h) / f32(window_h)
+		// Render scale maps logical pixels (window / zoom) onto output pixels.
+		scale_x := f32(output_w) / f32(window_w) * zoom
+		scale_y := f32(output_h) / f32(window_h) * zoom
 		_ = SDL.SetRenderScale(data.renderer, scale_x, scale_y)
 		data.pixel_density = max(scale_x, scale_y)
 	}
@@ -389,11 +560,40 @@ sdl_execute :: proc(backend: ^ansuz.Backend, cmd: ansuz.Draw_Command) {
 		draw_sdl_rect_outline(data.renderer, c.rect, c.thickness, c.radius)
 
 	case ansuz.Draw_Line:
-		SDL.SetRenderDrawColor(data.renderer, c.color.r, c.color.g, c.color.b, c.color.a)
-		SDL.RenderLine(
+		// RenderLine rasterizes a hairline after the render scale is applied, so a
+		// fractional scale below 1 (the smol-mode zoom) can drop diagonal strokes
+		// entirely — the window ✕ and checkmarks vanish. Draw the line as a thin
+		// quad instead (the WebGL backend's approach), which also honors the
+		// command's thickness.
+		dx := c.p1.x - c.p0.x
+		dy := c.p1.y - c.p0.y
+		length := math.sqrt(dx * dx + dy * dy)
+		if length < 1 {
+			length = 1
+		}
+		half := max(c.thickness, 1) * 0.5
+		nx := -dy / length * half
+		ny := dx / length * half
+		line_color := SDL.FColor{
+			f32(c.color.r) / 255,
+			f32(c.color.g) / 255,
+			f32(c.color.b) / 255,
+			f32(c.color.a) / 255,
+		}
+		line_verts := [4]SDL.Vertex{
+			{position = {c.p0.x + nx, c.p0.y + ny}, color = line_color},
+			{position = {c.p1.x + nx, c.p1.y + ny}, color = line_color},
+			{position = {c.p1.x - nx, c.p1.y - ny}, color = line_color},
+			{position = {c.p0.x - nx, c.p0.y - ny}, color = line_color},
+		}
+		line_indices := [6]i32{0, 1, 2, 0, 2, 3}
+		_ = SDL.RenderGeometry(
 			data.renderer,
-			f32(c.p0.x), f32(c.p0.y),
-			f32(c.p1.x), f32(c.p1.y),
+			nil,
+			raw_data(line_verts[:]),
+			4,
+			raw_data(line_indices[:]),
+			6,
 		)
 
 	case ansuz.Draw_Text:
@@ -434,15 +634,14 @@ sdl_execute :: proc(backend: ^ansuz.Backend, cmd: ansuz.Draw_Command) {
 			SDL.SetTextureColorMod(font.texture, c.color.r, c.color.g, c.color.b)
 			SDL.SetTextureAlphaMod(font.texture, c.color.a)
 
+			cursor_x := f32(c.pos.x)
+			cursor_y := f32(c.pos.y)
+			start_x := cursor_x
 			// Glyph advances are fractional, so unsnapped quads land between
 			// pixels and linear filtering smears the atlas texels, softening
 			// text that was rasterized for 1:1 display. Snap each glyph
 			// origin to a physical pixel (density-aware for high-DPI).
 			px_density := data.pixel_density if data.pixel_density > 0 else 1
-
-			cursor_x := f32(c.pos.x)
-			cursor_y := f32(c.pos.y)
-			start_x := cursor_x
 
 			for ch in c.text {
 				if ch == '\n' {
@@ -461,11 +660,11 @@ sdl_execute :: proc(backend: ^ansuz.Backend, cmd: ansuz.Draw_Command) {
 				src := SDL.FRect{
 					f32(g.atlas_x), f32(g.atlas_y),
 					f32(g.atlas_w), f32(g.atlas_h),
-				}
-				dst := SDL.FRect{
-					math.round((cursor_x + g.x_offset * scale) * px_density) / px_density,
-					math.round((cursor_y + (font.ascent + g.y_offset) * scale) * px_density) / px_density,
-					(g.x_offset2 - g.x_offset) * scale,
+			}
+			dst := SDL.FRect{
+				math.round((cursor_x + g.x_offset * scale) * px_density) / px_density,
+				math.round((cursor_y + (font.ascent + g.y_offset) * scale) * px_density) / px_density,
+				(g.x_offset2 - g.x_offset) * scale,
 					(g.y_offset2 - g.y_offset) * scale,
 				}
 				SDL.RenderTexture(data.renderer, font.texture, &src, &dst)
@@ -559,6 +758,12 @@ sdl_measure_text :: proc(backend: ^ansuz.Backend, text: string, font: ansuz.Font
 sdl_poll_events :: proc(backend: ^ansuz.Backend, input: ^ansuz.Input_State) -> bool {
 	data := cast(^SDL_Data)backend.user_data
 	quit := false
+	// Mouse events arrive in window coordinates; layout runs in logical
+	// (zoom-divided) coordinates, so input is converted at this seam.
+	zoom := data.zoom
+	if zoom <= 0 {
+		zoom = 1
+	}
 	// Keep the overlay visible for the frame that receives DROP_FILE, even when
 	// SDL queues DROP_COMPLETE immediately after it. Clear it on the next poll.
 	if data.file_drop_completed {
@@ -599,8 +804,8 @@ sdl_poll_events :: proc(backend: ^ansuz.Backend, input: ^ansuz.Input_State) -> b
 			sdl_sync_window_metrics(backend)
 
 		case .MOUSE_MOTION:
-			input.mouse_x = e.motion.x
-			input.mouse_y = e.motion.y
+			input.mouse_x = e.motion.x / zoom
+			input.mouse_y = e.motion.y / zoom
 
 		case .MOUSE_BUTTON_DOWN:
 			switch e.button.button {
@@ -636,6 +841,9 @@ sdl_poll_events :: proc(backend: ^ansuz.Backend, input: ^ansuz.Input_State) -> b
 
 		case .KEY_DOWN:
 			ctrl_down := input.key_ctrl || .LCTRL in e.key.mod || .RCTRL in e.key.mod
+			// Re-derive Alt from the event's modifier mask every key press so a
+			// release missed during Alt+Tab (window defocus) self-heals here.
+			input.key_alt = .LALT in e.key.mod || .RALT in e.key.mod
 			key_value := i32(e.key.key)
 			if key_value >= 'a' && key_value <= 'z' {
 				key_value -= 'a' - 'A'
@@ -679,6 +887,8 @@ sdl_poll_events :: proc(backend: ^ansuz.Backend, input: ^ansuz.Input_State) -> b
 				input.key_shift = true
 			case .LCTRL, .RCTRL:
 				input.key_ctrl = true
+			case .LALT, .RALT:
+				input.key_alt = true
 			}
 
 		case .KEY_UP:
@@ -687,6 +897,8 @@ sdl_poll_events :: proc(backend: ^ansuz.Backend, input: ^ansuz.Input_State) -> b
 				input.key_shift = false
 			case .LCTRL, .RCTRL:
 				input.key_ctrl = false
+			case .LALT, .RALT:
+				input.key_alt = false
 			}
 
 		case .DROP_BEGIN, .DROP_POSITION:

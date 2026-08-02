@@ -42,6 +42,12 @@ Deferred_Text :: struct {
 	selection_start: int, // byte range highlighted before this text is drawn
 	selection_end:   int,
 	selection_color: Color,
+	// Styled (rich) text. When runs is non-empty they are drawn instead of
+	// `text`, one draw per emphasis fragment — see richtext.odin.
+	runs:            []Text_Run,
+	run_lines:       int,
+	run_line_height: f32,
+	code_color:      Color, // chip behind inline-code runs; transparent = none
 }
 
 // --- Label ---
